@@ -1,5 +1,5 @@
 # Implementace EET v c++
-Knihovna je inspirována implementací EET [v Javě](https://github.com/l-ra/openeet-java) a je licencován pod GNU GENERAL PUBLIC LICENSE Version 3.
+Knihovna je inspirována implementací EET [v Javě](https://github.com/l-ra/openeet-java) a je licencován pod GNU LESSER GENERAL PUBLIC Version 3.
 
 Libeetpp používá knihovny [OpenSSL](https://www.openssl.org/) a [libcurl](https://curl.haxx.se/libcurl/).
 
