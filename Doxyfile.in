@@ -32,7 +32,7 @@ PROJECT_NAME           = "Libeetpp"
 # This could be handy for archiving the generated documentation or
 # if some version control system is used.
 
-PROJECT_NUMBER         = @PROJECT_VERSION@
+PROJECT_NUMBER         = 1.00.0
 
 # Using the PROJECT_BRIEF tag one can provide an optional one line description
 # for a project that appears at the top of each page and should give viewer
@@ -649,7 +649,7 @@ WARN_LOGFILE           =
 # with spaces.
 
 INPUT                  = @CMAKE_CURRENT_SOURCE_DIR@"/src"
-INPUT				  += @CMAKE_CURRENT_SOURCE_DIR@"/README.md"
+INPUT                 += @CMAKE_CURRENT_SOURCE_DIR@"/README.md"
 USE_MDFILE_AS_MAINPAGE = @CMAKE_CURRENT_SOURCE_DIR@"/README.md"
 
 # This tag can be used to specify the character encoding of the source files
@@ -682,7 +682,7 @@ RECURSIVE              = NO
 # Note that relative paths are relative to the directory from which doxygen is
 # run.
 
-EXCLUDE                = 
+EXCLUDE                =
 
 # The EXCLUDE_SYMLINKS tag can be used to select whether or not files or
 # directories that are symbolic links (a Unix file system feature) are excluded
