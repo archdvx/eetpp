@@ -60,10 +60,6 @@ if(NOT HAVE_VSNPRINTF_EXISTS)
     endif()
 endif()
 
-get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)
-set(PURPLEMM_LIBRARIES eetpp ${PURPLE_LIBRARIES} CACHE INTERNAL "")
-set(PURPLEMM_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/src" ${dirs} CACHE INTERNAL "")
-
 set(LIB_SUFFIX "" CACHE STRING "Define suffix of directory name (32/64)")
 
 if(NOT WIN32)
@@ -100,7 +96,7 @@ set_target_properties(eetpp PROPERTIES
 if(NOT WIN32)
     target_link_libraries(eetpp)
 else(NOT WIN32)
-    target_link_libraries(eetpp ${EET_LIBS})
+    target_link_libraries(eetpp ${EETPP_LIBS})
 endif(NOT WIN32)
 
 # add a target to generate API documentation with Doxygen
