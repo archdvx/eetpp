@@ -64,12 +64,8 @@ set(LIB_SUFFIX "" CACHE STRING "Define suffix of directory name (32/64)")
 
 if(NOT WIN32)
 # Source distribution
-set(ARCHIVE_NAME libeetpp-1.00.0)
-add_custom_target(dist COMMAND cd ${CMAKE_CURRENT_SOURCE_DIR} &&
-    rm -rf ${ARCHIVE_NAME} &&
-    svn export . ${ARCHIVE_NAME} &&
-    tar czf ${ARCHIVE_NAME}.tar.gz ${ARCHIVE_NAME} &&
-    rm -rf ${ARCHIVE_NAME}
+set(ARCHIVE_NAME libeetpp-1.00.0.tar.gz)
+add_custom_target(dist COMMAND cd ${CMAKE_CURRENT_SOURCE_DIR} && git archive --format tar.gz -o ${ARCHIVE_NAME} HEAD
 )
 endif(NOT WIN32)
 
