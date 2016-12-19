@@ -9,4 +9,4 @@ Version: 1.00.0
 
 Requires: libssl libcrypto libcurl
 Libs: -L${libdir} -leetpp
-Cflags: -I${includedir}
+Cflags: -I${includedir}/eetpp
