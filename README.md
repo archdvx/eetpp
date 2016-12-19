@@ -47,7 +47,7 @@ int main(int argc, char **argv)
 ### Kompilace
 
 ```
-c++ -o eettest eettest.cpp eet.cpp -lssl -lcrypto -lcurl -leetpp
+c++ -o eettest eettest.cpp -lssl -lcrypto -lcurl -leetpp
 ```
 
 _Knihovna přilinkována_
