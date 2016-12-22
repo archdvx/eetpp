@@ -638,7 +638,7 @@ void Eet::parseResponse(const std::string &response)
 
 bool Eet::regexString20(const std::string &text)
 {
-    std::regex reg("[0-9a-zA-Z\\.,:;/#\\-_ ]{1,20}");
+    std::regex reg("[0-9a-zA-Z\\.,:;/#_ -]{1,20}");
     return std::regex_match(text, reg);
 }
 
@@ -873,7 +873,7 @@ bool EetData::regexTime(const std::string &text)
 
 bool EetData::regexString25(const std::string &text)
 {
-    std::regex reg("[0-9a-zA-Z\\.,:;/#\\-_ ]{1,25}");
+    std::regex reg("[0-9a-zA-Z\\.,:;/#_ -]{1,25}");
     return std::regex_match(text, reg);
 }
 
