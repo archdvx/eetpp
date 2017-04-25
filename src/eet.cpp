@@ -268,7 +268,13 @@ EETCODE Eet::sendTrzbaImpl(EetData data)
     {
         showDebug("Response:");
         showDebug(response);
-        parseResponse(response);
+        parseResponse(response, m_overeni);
+        if(m_overeni == OVEROVACI && !m_fik.empty())
+        {
+            m_fik.clear();
+            if(!m_varovani.empty()) return EET_VAROVANI;
+            else return EET_OVERENO;
+        }
         if(!m_chyba.empty()) return EET_CHYBA;
         if(!m_varovani.empty()) return EET_VAROVANI;
         if(m_fik.empty())
@@ -581,11 +587,40 @@ std::string Eet::fillTemplate(const std::string &templ)
     return ss.str();
 }
 
-void Eet::parseResponse(const std::string &response)
+void Eet::parseResponse(const std::string &response, OVERENI overeni)
 {
     m_fik = "";
     m_chyba = "";
     m_varovani = "";
+    if(overeni == OVEROVACI)
+    {
+        if(response.find("eet:Chyba kod=\"0\"") != std::string::npos)
+        {
+            m_fik = "Overeno";
+            //response obsahuje Varovani
+            if(response.find("<eet:Varovani") != std::string::npos)
+            {
+                size_t pos1, pos2;
+                for(size_t i=response.find("<eet:Varovani"); i<response.length(); ++i)
+                {
+                    if(response.substr(i,10) == "kod_varov=")
+                    {
+                        pos1 = response.find('"', i);
+                        pos2 = response.find('"', pos1+1);
+                        m_varovani.append("Kód: ");
+                        m_varovani.append(response.substr(pos1+1, pos2-pos1-1));
+                        m_varovani.append("\n");
+                        pos1 = response.find('>', pos2);
+                        pos2 = response.find('<', pos1+1);
+                        m_varovani.append(response.substr(pos1+1, pos2-pos1-1));
+                        m_varovani.append("\n");
+                        i = pos2;
+                    }
+                }
+            }
+            return;
+        }
+    }
     size_t fik = response.find("Potvrzeni fik");
     size_t pos1, pos2;
     if(fik != std::string::npos)

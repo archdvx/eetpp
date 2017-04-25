@@ -78,6 +78,7 @@ enum EETCODE {
     EET_OK = 0, /**< Tržba odeslána bez chyb a varování nebo nastavení parametrů bez chyb */
     EET_VAROVANI, /**< Tržba odeslána s varováním */
     EET_CHYBA, /**< Tržba odeslána s chybou */
+    EET_OVERENO, /**< Tržba v ověřovacím módu odeslána úspěšně */
     EET_ERROR /**< Chyba socketu, chybný certifikát, chybně zadané DIC atd. */
 };
 
@@ -537,7 +538,7 @@ private:
      */
     std::string formatBool(bool value);
     std::string fillTemplate(const std::string &templ);
-    void parseResponse(const std::string &response);
+    void parseResponse(const std::string &response, OVERENI overeni);
     bool regexString20(const std::string &text);
     bool regexDic(const std::string &text);
 };
