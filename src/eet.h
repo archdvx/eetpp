@@ -101,7 +101,6 @@ public:
      * \param zaklDan3 Celkový základ daně s druhou sníženou sazbou DPH
      * \param dan3 Celková DPH s druhou sníženou sazbou
      * \param prvniZaslani První zaslání údajů o tržbě
-     * \param rezim Režim tržby
      * \param datOdesl Datum a čas odeslání zprávy
      * \param datTrzby Datum a čas přijetí tržby
      * \param cestSluz Celková částka v režimu DPH pro cestovní službu
@@ -112,7 +111,7 @@ public:
      * \param cerpZuct Celková částka plateb, které jsou následným čerpáním nebo zúčtováním platby
      */
     EetData(const std::string &poradCis, double celkTrzba, double *zaklNepodlDph=NULL, double *zaklDan1=NULL, double *dan1=NULL, double *zaklDan2=NULL, double *dan2=NULL,
-            double *zaklDan3=NULL, double *dan3=NULL, const ZASLANI &prvniZaslani=PRVNI, const REZIM &rezim=STANDARDNI, time_t datOdesl=::time(NULL), time_t datTrzby=::time(NULL),
+            double *zaklDan3=NULL, double *dan3=NULL, const ZASLANI &prvniZaslani=PRVNI, time_t datOdesl=::time(NULL), time_t datTrzby=::time(NULL),
             double *cestSluz=NULL, double *pouzitZboz1=NULL, double *pouzitZboz2=NULL, double *pouzitZboz3=NULL,
             double *urcenoCerpZuct=NULL, double *cerpZuct=NULL);
 
@@ -181,14 +180,6 @@ public:
      * \brief Celková částka tržby
      */
     EETCODE setCelkTrzba(double celkTrzba);
-    /*!
-     * \brief Režim tržby
-     */
-    REZIM getRezim() const;
-    /*!
-     * \brief Režim tržby
-     */
-    EETCODE setRezim(const REZIM &rezim);
     /*!
      * \brief Celková částka plnění osvobozených od DPH, ostatních plnění
      */
@@ -354,7 +345,6 @@ private:
     std::string m_poradCis;
     std::string m_datTrzby;
     std::string m_celkTrzba;
-    REZIM m_rezim;
     // Optional Data - start
     std::string m_zaklNepodlDph;
     std::string m_zaklDan1;
@@ -435,6 +425,10 @@ public:
      */
     EETCODE sendTrzba(const std::string &idPokl, const EetData &data);
     //Setters
+    /*!
+     * \brief Režim tržby
+     */
+    EETCODE setRezim(const REZIM &rezim);
     /*!
      * \brief Příznak ověřovacího módu odesílání - Optional
      */

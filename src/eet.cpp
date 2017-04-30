@@ -82,6 +82,17 @@ EETCODE Eet::sendTrzba(const std::string &idPokl, const EetData &data)
     return sendTrzbaImpl(data);
 }
 
+EETCODE Eet::setRezim(const REZIM &rezim)
+{
+    if(rezim<STANDARDNI || rezim>ZJEDNODUSENY)
+    {
+        m_chyba = "Chyba v Režimu tržby";
+        return EET_ERROR;
+    }
+    m_rezim = rezim;
+    return EET_OK;
+}
+
 EETCODE Eet::setOvereni(const OVERENI &overeni)
 {
     if(overeni<PRODUKCNI || overeni>OVEROVACI)
@@ -192,6 +203,18 @@ EETCODE Eet::sendTrzbaImpl(EetData data)
     if(m_cert == NULL || m_key == NULL)
     {
         m_chyba = "Chyba certifikátu";
+        return EET_ERROR;
+    }
+
+    if(m_overeni<PRODUKCNI || m_overeni>OVEROVACI)
+    {
+        m_chyba = "Chyba v Příznak ověřovacího módu odesílání";
+        return EET_ERROR;
+    }
+
+    if(m_rezim<STANDARDNI || m_rezim>ZJEDNODUSENY)
+    {
+        m_chyba = "Chyba v Režim tržby";
         return EET_ERROR;
     }
 
@@ -693,7 +716,6 @@ EetData::EetData()
     m_poradCis = "";
     m_datTrzby = formatTime(::time(NULL));
     m_celkTrzba = "0.00";
-    m_rezim = STANDARDNI;
     // Optional Data - start
     m_zaklNepodlDph = "";
     m_zaklDan1 = "";
@@ -713,7 +735,7 @@ EetData::EetData()
 }
 
 EetData::EetData(const std::string &poradCis, double celkTrzba, double *zaklNepodlDph, double *zaklDan1, double *dan1, double *zaklDan2, double *dan2, double *zaklDan3, double *dan3,
-                 const ZASLANI &prvniZaslani, const REZIM &rezim, time_t datOdesl, time_t datTrzby, double *cestSluz, double *pouzitZboz1, double *pouzitZboz2, double *pouzitZboz3,
+                 const ZASLANI &prvniZaslani, time_t datOdesl, time_t datTrzby, double *cestSluz, double *pouzitZboz1, double *pouzitZboz2, double *pouzitZboz3,
                  double *urcenoCerpZuct, double *cerpZuct)
 {
     //Hlavicka - start
@@ -724,7 +746,6 @@ EetData::EetData(const std::string &poradCis, double celkTrzba, double *zaklNepo
     m_poradCis = poradCis;
     m_datTrzby = formatTime(datTrzby);
     m_celkTrzba = formatDouble(celkTrzba);
-    m_rezim = rezim;
     // Optional Data - start
     m_zaklNepodlDph = zaklNepodlDph?formatDouble(*zaklNepodlDph):"";
     m_zaklDan1 = zaklDan1?formatDouble(*zaklDan1):"";
@@ -771,11 +792,6 @@ EETCODE EetData::checkData()
     if(!regexDouble(m_celkTrzba))
     {
         m_chyba = "Chyba v Celková částka tržby";
-        return EET_ERROR;
-    }
-    if(m_rezim<STANDARDNI || m_rezim>ZJEDNODUSENY)
-    {
-        m_chyba = "Chyba v Režim tržby";
         return EET_ERROR;
     }
     // Optional Data - start
@@ -1018,22 +1034,6 @@ EETCODE EetData::setCelkTrzba(double celkTrzba)
         m_celkTrzba = "";
         return EET_ERROR;
     }
-    return EET_OK;
-}
-
-REZIM EetData::getRezim() const
-{
-    return m_rezim;
-}
-
-EETCODE EetData::setRezim(const REZIM &rezim)
-{
-    if(rezim<STANDARDNI || rezim>ZJEDNODUSENY)
-    {
-        m_chyba = "Chyba v Režim tržby";
-        return EET_ERROR;
-    }
-    m_rezim = rezim;
     return EET_OK;
 }
 
