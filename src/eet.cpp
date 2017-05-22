@@ -355,9 +355,9 @@ bool Eet::createKeyCert()
         BIO *bio = NULL;
         bio = BIO_new(BIO_s_mem());
         PEM_write_bio_PrivateKey(bio, pkey, NULL, NULL, 0, NULL, NULL);
-        m_key = (char *)malloc(bio->num_write + 1);
-        memset(m_key, 0, bio->num_write + 1);
-        BIO_read(bio, m_key, bio->num_write);
+        m_key = (char *)malloc(BIO_number_written(bio) + 1);
+        memset(m_key, 0, BIO_number_written(bio) + 1);
+        BIO_read(bio, m_key, BIO_number_written(bio));
         BIO_free(bio);
     }
     if(cert)
@@ -365,9 +365,9 @@ bool Eet::createKeyCert()
         BIO *bio = NULL;
         bio = BIO_new(BIO_s_mem());
         PEM_write_bio_X509(bio, cert);
-        m_cert = (char *)malloc(bio->num_write + 1);
-        memset(m_cert, 0, bio->num_write + 1);
-        BIO_read(bio, m_cert, bio->num_write);
+        m_cert = (char *)malloc(BIO_number_written(bio) + 1);
+        memset(m_cert, 0, BIO_number_written(bio) + 1);
+        BIO_read(bio, m_cert, BIO_number_written(bio));
         BIO_free(bio);
     }
     sk_X509_pop_free(ca, X509_free);
