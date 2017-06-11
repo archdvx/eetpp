@@ -82,6 +82,44 @@ EETCODE Eet::sendTrzba(const std::string &idPokl, const EetData &data)
     return sendTrzbaImpl(data);
 }
 
+EETCODE Eet::createPkpBkp(const std::string &idPokl, EetData data)
+{
+    if(m_cert == NULL || m_key == NULL)
+    {
+        m_chyba = "Chyba certifikátu";
+        return EET_ERROR;
+    }
+
+    if(!regexDic(m_dicPopl))
+    {
+        m_chyba = "Chyba v DIČ poplatníka";
+        return EET_ERROR;
+    }
+
+    if(m_idProvoz<1 || m_idProvoz>999999)
+    {
+        m_chyba = "Chyba v Označení provozovny";
+        return EET_ERROR;
+    }
+
+    if(!regexString20(idPokl))
+    {
+        m_chyba = "Chyba v Označení pokladního zařízení";
+        return EET_ERROR;
+    }
+
+    if(data.checkData() != EET_OK)
+    {
+        m_chyba = data.getChyba();
+        return EET_ERROR;
+    }
+
+    std::stringstream ss;
+    ss << m_dicPopl << "|" << m_idProvoz << "|" << idPokl << "|" << data.getPoradCis() << "|" << data.getDatTrzby() << "|" << data.getCelkTrzba();
+    createPkpBkp(ss.str());
+    return EET_OK;
+}
+
 EETCODE Eet::setRezim(const REZIM &rezim)
 {
     if(rezim<STANDARDNI || rezim>ZJEDNODUSENY)

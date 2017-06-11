@@ -424,6 +424,12 @@ public:
      * \param data Data tržby
      */
     EETCODE sendTrzba(const std::string &idPokl, const EetData &data);
+    /*!
+     * \brief Vytvoří Podpisový kód poplatníka (PKP) a Bezpečnostní kód poplatníka (BKP)
+     * \param idPokl Označení pokladního zařízení
+     * \param data Data tržby
+     */
+    EETCODE createPkpBkp(const std::string &idPokl, EetData data);
     //Setters
     /*!
      * \brief Režim tržby
