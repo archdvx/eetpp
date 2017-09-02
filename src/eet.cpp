@@ -25,6 +25,29 @@
 
 #if _MSC_VER
     #define VSNPRINTF _vsnprintf
+    #if _MSC_VER < 1900
+    #define snprintf c99_snprintf
+    #define vsnprintf c99_vsnprintf
+    __inline int c99_vsnprintf(char *outBuf, size_t size, const char *format, va_list ap)
+    {
+        int count = -1;
+        if (size != 0)
+            count = _vsnprintf_s(outBuf, size, _TRUNCATE, format, ap);
+        if (count == -1)
+            count = _vscprintf(format, ap);
+        return count;
+    }
+
+    __inline int c99_snprintf(char *outBuf, size_t size, const char *format, ...)
+    {
+        int count;
+        va_list ap;
+        va_start(ap, format);
+        count = c99_vsnprintf(outBuf, size, format, ap);
+        va_end(ap);
+        return count;
+    }
+    #endif
 #else
     #define VSNPRINTF vsnprintf
 #endif
@@ -317,6 +340,8 @@ EETCODE Eet::sendTrzbaImpl(EetData data)
         curl_easy_setopt(curl, CURLOPT_HEADER, "Content-Type: text/xml;charset=UTF-8");
         curl_easy_setopt(curl, CURLOPT_URL, m_playground?PGURL:PRODUKCNIURL);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, templateRequest.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)templateRequest.size());
+        curl_easy_setopt(curl, CURLOPT_CRLF, 0L);
         curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_1);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
@@ -946,7 +971,7 @@ std::string EetData::formatTime(time_t time)
     int len = strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S", timeinfo);
     std::string s(buffer, len);
     int gmtoff;
-#if __WIN32__
+#if _WIN32
     gmtoff = -(timezone - (timeinfo->tm_isdst>0?3600:0))/3600;
 #else
     gmtoff = timeinfo->tm_gmtoff/3600;
