@@ -626,7 +626,9 @@ std::string Eet::formatBkp()
 std::string Eet::formatCertificate()
 {
     std::string cert(m_cert);
-    cert = cert.substr(cert.find_first_of('\n')+1, cert.find_last_of("==")-cert.find_first_of('\n')+1);
+    int pos_start = cert.find_first_of('\n')+1;
+    int pos_end   = cert.find("-----END CERTIFICATE-----", pos_start);
+    cert = cert.substr(pos_start, pos_end - pos_start);
     cert.erase(std::remove(cert.begin(), cert.end(), '\n'), cert.end());
     return cert;
 }
