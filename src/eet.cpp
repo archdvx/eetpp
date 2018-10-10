@@ -600,7 +600,7 @@ std::string Eet::byte2Hex(std::vector<unsigned char> data)
     std::stringstream ss;
     for(size_t i = 0; i < data.size(); ++i)
     {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)data[i];
+        ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)data[i];
     }
     return ss.str();
 }
