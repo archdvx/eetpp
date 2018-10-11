@@ -600,7 +600,7 @@ std::string Eet::byte2Hex(std::vector<unsigned char> data)
     std::stringstream ss;
     for(size_t i = 0; i < data.size(); ++i)
     {
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)data[i];
+        ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)data[i];
     }
     return ss.str();
 }
@@ -626,7 +626,9 @@ std::string Eet::formatBkp()
 std::string Eet::formatCertificate()
 {
     std::string cert(m_cert);
-    cert = cert.substr(cert.find_first_of('\n')+1, cert.find_last_of("==")-cert.find_first_of('\n')+1);
+    int pos_start = cert.find_first_of('\n')+1;
+    int pos_end   = cert.find("-----END CERTIFICATE-----", pos_start);
+    cert = cert.substr(pos_start, pos_end - pos_start);
     cert.erase(std::remove(cert.begin(), cert.end(), '\n'), cert.end());
     return cert;
 }
