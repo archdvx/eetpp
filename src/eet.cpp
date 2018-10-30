@@ -390,7 +390,19 @@ bool Eet::createKeyCert()
     PKCS12 *p12;
     OpenSSL_add_all_algorithms();
     ERR_load_crypto_strings();
-    if(!(fp = fopen(m_certPath.c_str(), "rb")))
+
+    #ifndef _WIN32
+        fp = fopen(m_certPath.c_str(), "rb");
+    #else
+        // On Windows, non-ascii characters in path don't work with fopen(). Thus use _wfopen() instead.
+        std::wstring filePathW;
+        filePathW.resize(m_certPath.size());
+        int newSize = MultiByteToWideChar(CP_UTF8, 0, m_certPath.c_str(), m_certPath.length(), const_cast<wchar_t *>(filePathW.c_str()), m_certPath.length());
+        filePathW.resize(newSize);
+        fp = _wfopen(filePathW.c_str(), L"rb");
+    #endif
+
+    if(!fp)
     {
         m_chyba = EetData::formatString("Chyba při otevírání souboru certifikátu %s", m_certPath.c_str());
         showDebug(m_chyba);
