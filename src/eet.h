@@ -14,7 +14,7 @@
 #include <new>
 #include <openssl/rsa.h>
 
-#ifdef __WIN32
+#ifdef _WIN32
 # ifdef eetpp_EXPORTS
 #  define EETPP_EXPORT __declspec(dllexport)
 # else
