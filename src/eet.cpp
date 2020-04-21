@@ -52,10 +52,9 @@
     #define VSNPRINTF vsnprintf
 #endif
 
-class tecka : public std::numpunct<char>
+struct tecka : std::numpunct<char>
 {
-    protected:
-        char do_decimal_point() const { return '.'; }
+    char do_decimal_point() const { return '.'; }
 };
 
 static size_t curlCallback(void *contents, size_t size, size_t nmemb, void *userp)
@@ -65,7 +64,7 @@ static size_t curlCallback(void *contents, size_t size, size_t nmemb, void *user
 }
 
 Eet::Eet()
-    : m_overeni(PRODUKCNI), m_dicPopl(""), m_dicPoverujiciho(""), m_idProvoz(0), m_idPokl(""), m_rezim(STANDARDNI), m_certPath(""), m_pass(""),
+    : m_overeni(PRODUKCNI), m_dicPopl(""), m_dicPoverujiciho(""), m_idProvoz(0), m_idPokl(""), m_rezim(STANDARDNI), m_certPath(""), m_pass(""), m_key(NULL), m_cert(NULL),
       m_playground(true)
 {
 }
@@ -427,8 +426,7 @@ bool Eet::createKeyCert()
     PKCS12_free(p12);
     if(pkey)
     {
-        BIO *bio = NULL;
-        bio = BIO_new(BIO_s_mem());
+        BIO *bio = BIO_new(BIO_s_mem());
         PEM_write_bio_PrivateKey(bio, pkey, NULL, NULL, 0, NULL, NULL);
         m_key = (char *)malloc(BIO_number_written(bio) + 1);
         memset(m_key, 0, BIO_number_written(bio) + 1);
@@ -437,8 +435,7 @@ bool Eet::createKeyCert()
     }
     if(cert)
     {
-        BIO *bio = NULL;
-        bio = BIO_new(BIO_s_mem());
+        BIO *bio = BIO_new(BIO_s_mem());
         PEM_write_bio_X509(bio, cert);
         m_cert = (char *)malloc(BIO_number_written(bio) + 1);
         memset(m_cert, 0, BIO_number_written(bio) + 1);
