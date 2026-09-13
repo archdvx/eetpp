@@ -1,22 +1,13 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
-if(COMMAND cmake_policy)
-    if(POLICY CMP0048)
-        cmake_policy(SET CMP0048 OLD)
-    endif(POLICY CMP0048)
-endif(COMMAND cmake_policy)
+cmake_minimum_required(VERSION 3.16)
 project(eetpp)
 
 set(EETPP_LIBS "")
 set(EETPP_INCLUDE_DIRS "")
 
-include(CheckCXXCompilerFlag)
-CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
-if(COMPILER_SUPPORTS_CXX11)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-else()
-    message(STATUS "The compiler ${CMAKE_CXX_COMPILER} has no C++11 support. Please use a different C++ compiler.")
-    return()
+if(NOT "${CMAKE_CXX_STANDARD}")
+    set(CMAKE_CXX_STANDARD 17)
 endif()
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(HAVE_OPENSSL FALSE)
 find_package(OpenSSL)
@@ -64,7 +55,7 @@ set(LIB_SUFFIX "" CACHE STRING "Define suffix of directory name (32/64)")
 
 if(NOT WIN32)
 # Source distribution
-set(ARCHIVE_NAME libeetpp-1.00.0.tar.gz)
+set(ARCHIVE_NAME libeetpp-2.00.0.tar.gz)
 add_custom_target(dist COMMAND cd ${CMAKE_CURRENT_SOURCE_DIR} && git archive --format tar.gz -o ${ARCHIVE_NAME} HEAD
 )
 endif(NOT WIN32)
@@ -86,8 +77,8 @@ set(eetpp_HEADERS
 
 add_library(eetpp SHARED ${eetpp_SRCS})
 set_target_properties(eetpp PROPERTIES
-    VERSION 1.00.0
-    SOVERSION 1.00
+    VERSION 2.00.0
+    SOVERSION 2.00
 )
 if(NOT WIN32)
     target_link_libraries(eetpp)

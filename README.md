@@ -1,4 +1,6 @@
 # Implementace EET v c++
+Podporuje **EET 2.0** spuštěné od 1.1.2027
+
 Knihovna je inspirována implementací EET [v Javě](https://github.com/l-ra/openeet-java) a je licencován pod GNU LESSER GENERAL PUBLIC Version 3.
 
 Libeetpp používá knihovny [OpenSSL](https://www.openssl.org/) a [libcurl](https://curl.haxx.se/libcurl/).
@@ -15,7 +17,7 @@ cd build
 cmake ..
 sudo make install
 ```
-_Vyžaduje kompiler s podporou ISO C++ 2011 standardu_
+_Vyžaduje kompiler s podporou ISO C++ 2017 standardu_
 
 ## Příklad
 
@@ -26,18 +28,21 @@ eettest.cpp
 
 int main(int argc, char **argv)
 {
-    Eet eet("CZ1212121218", 21, "./EET_CA1_Playground-CZ1212121218.p12", "eet", "Pokladna 1");
+    Eet eet("CZ00000019", 21, "./CA_EET-Playground-CZ00000019.p12", "aaaa1111", "Pokladna 1");
     eet.setPlayground(true);
-    EETCODE ret = eet.sendTrzba(EetData("1234/2016", 1113.0));
+    EETCODE ret = eet.sendTrzba(EetData("1234/2026", 1113.0));
     if(ret == EET_OK || ret == EET_VAROVANI)
     {
-        std::cout << "PKP: "<< eet.getPkp() << std::endl;
-        std::cout << "BKP: "<< eet.getBkp() << std::endl;
-        std::cout << "FIK: "<< eet.getFik() << std::endl;
-        if(ret == EET_VAROVANI) std::cerr << eet.getVarovani() << std::endl;
+        std::cout << "POK: " << eet.getPok() << std::endl;
+        if(ret == EET_VAROVANI)
+        {
+            std::cout << "Varovani: " << std::endl;
+            std::cerr << eet.getVarovani() << std::endl;
+        }
     }
     else
     {
+        std::cout << "Chyba: " << std::endl;
         std::cerr << eet.getChyba() << std::endl;
     }
     return 0;

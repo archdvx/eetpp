@@ -1,8 +1,9 @@
 /***************************************************************
  * Name:      eet.cpp
- * Author:    David Vachulka (arch_dvx@users.sourceforge.net)
+ * Author:    David Vachulka (archdvx@dxsolutions.org)
  * Copyright: 2016
  * License:   LGPL3
+ * Updated for EET 2.0 (v4 interface, 2026)
  **************************************************************/
 
 #include "eet.h"
@@ -19,8 +20,10 @@
 #include <openssl/pem.h>
 #include <openssl/err.h>
 #include <openssl/pkcs12.h>
-#include <openssl/sha.h>
 #include <openssl/rand.h>
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#include <openssl/provider.h>
+#endif
 #include <curl/curl.h>
 
 #if _MSC_VER
@@ -64,14 +67,14 @@ static size_t curlCallback(void *contents, size_t size, size_t nmemb, void *user
 }
 
 Eet::Eet()
-    : m_overeni(PRODUKCNI), m_dicPopl(""), m_dicPoverujiciho(""), m_idProvoz(0), m_idPokl(""), m_rezim(STANDARDNI), m_certPath(""), m_pass(""), m_key(NULL), m_cert(NULL),
+    : m_overeni(PRODUKCNI), m_eicPopl(""), m_eicPoverujiciho(""), m_povereniVicePopl(false), m_idJednotky(0), m_idPokl(""), m_certPath(""), m_pass(""), m_key(NULL), m_cert(NULL),
       m_playground(true)
 {
 }
 
-Eet::Eet(const std::string &dicPopl, int idProvoz, const std::string &cert, const std::string &pass, const std::string &idPokl, const std::string &dicPoverujiciho,
-         const OVERENI &overeni, const REZIM &rezim, bool playground)
-    : m_overeni(overeni), m_dicPopl(dicPopl), m_dicPoverujiciho(dicPoverujiciho), m_idProvoz(idProvoz), m_idPokl(idPokl), m_rezim(rezim), m_certPath(cert), m_pass(pass),
+Eet::Eet(const std::string &eicPopl, int idJednotky, const std::string &cert, const std::string &pass, const std::string &idPokl, const std::string &eicPoverujiciho,
+         const OVERENI &overeni, bool playground)
+    : m_overeni(overeni), m_eicPopl(eicPopl), m_eicPoverujiciho(eicPoverujiciho), m_povereniVicePopl(false), m_idJednotky(idJednotky), m_idPokl(idPokl), m_certPath(cert), m_pass(pass),
       m_playground(playground)
 {
     createKeyCert();
@@ -104,55 +107,6 @@ EETCODE Eet::sendTrzba(const std::string &idPokl, const EetData &data)
     return sendTrzbaImpl(data);
 }
 
-EETCODE Eet::createPkpBkp(const std::string &idPokl, EetData data)
-{
-    if(m_cert == NULL || m_key == NULL)
-    {
-        m_chyba = "Chyba certifikátu";
-        return EET_ERROR;
-    }
-
-    if(!regexDic(m_dicPopl))
-    {
-        m_chyba = "Chyba v DIČ poplatníka";
-        return EET_ERROR;
-    }
-
-    if(m_idProvoz<1 || m_idProvoz>999999)
-    {
-        m_chyba = "Chyba v Označení provozovny";
-        return EET_ERROR;
-    }
-
-    if(!regexString20(idPokl))
-    {
-        m_chyba = "Chyba v Označení pokladního zařízení";
-        return EET_ERROR;
-    }
-
-    if(data.checkData() != EET_OK)
-    {
-        m_chyba = data.getChyba();
-        return EET_ERROR;
-    }
-
-    std::stringstream ss;
-    ss << m_dicPopl << "|" << m_idProvoz << "|" << idPokl << "|" << data.getPoradCis() << "|" << data.getDatTrzby() << "|" << data.getCelkTrzba();
-    createPkpBkp(ss.str());
-    return EET_OK;
-}
-
-EETCODE Eet::setRezim(const REZIM &rezim)
-{
-    if(rezim<STANDARDNI || rezim>ZJEDNODUSENY)
-    {
-        m_chyba = "Chyba v Režimu tržby";
-        return EET_ERROR;
-    }
-    m_rezim = rezim;
-    return EET_OK;
-}
-
 EETCODE Eet::setOvereni(const OVERENI &overeni)
 {
     if(overeni<PRODUKCNI || overeni>OVEROVACI)
@@ -164,41 +118,47 @@ EETCODE Eet::setOvereni(const OVERENI &overeni)
     return EET_OK;
 }
 
-EETCODE Eet::setDicPopl(const std::string &dicPopl)
+EETCODE Eet::setEicPopl(const std::string &eicPopl)
 {
-    if(!regexDic(dicPopl))
+    if(!regexEic(eicPopl))
     {
-        m_chyba = "Chyba v DIČ poplatníka";
+        m_chyba = "Chyba v EIČ poplatníka";
         return EET_ERROR;
     }
-    m_dicPopl = dicPopl;
+    m_eicPopl = eicPopl;
     return EET_OK;
 }
 
-EETCODE Eet::setDicPoverujiciho(const std::string &dicPoverujiciho)
+EETCODE Eet::setEicPoverujiciho(const std::string &eicPoverujiciho)
 {
-    if(dicPoverujiciho.empty())
+    if(eicPoverujiciho.empty())
     {
-        m_dicPoverujiciho = "";
+        m_eicPoverujiciho = "";
         return EET_OK;
     }
-    if(!regexDic(dicPoverujiciho))
+    if(!regexEic(eicPoverujiciho))
     {
-        m_chyba = "Chyba v DIČ pověřujícího poplatníka";
+        m_chyba = "Chyba v EIČ pověřujícího poplatníka";
         return EET_ERROR;
     }
-    m_dicPoverujiciho = dicPoverujiciho;
+    m_eicPoverujiciho = eicPoverujiciho;
     return EET_OK;
 }
 
-EETCODE Eet::setIdProvoz(int idProvoz)
+EETCODE Eet::setPovereniVicePopl(bool povereniVicePopl)
 {
-    if(idProvoz<1 || idProvoz>999999)
+    m_povereniVicePopl = povereniVicePopl;
+    return EET_OK;
+}
+
+EETCODE Eet::setIdJednotky(int idJednotky)
+{
+    if(idJednotky<1 || idJednotky>999999999)
     {
-        m_chyba = "Chyba v Označení provozovny";
+        m_chyba = "Chyba v Označení evidenční jednotky";
         return EET_ERROR;
     }
-    m_idProvoz = idProvoz;
+    m_idJednotky = idJednotky;
     return EET_OK;
 }
 
@@ -218,19 +178,15 @@ void Eet::setPlayground(bool playground)
     m_playground = playground;
 }
 
-std::string Eet::getPkp()
+std::string Eet::getPok()
 {
-    return formatPkp();
-}
-
-std::string Eet::getBkp()
-{
-    return formatBkp();
+    return m_pok;
 }
 
 std::string Eet::getFik()
 {
-    return m_fik;
+    // Zpětná kompatibilita s API EET 1.0 - vrací potvrzovací kód (POK)
+    return m_pok;
 }
 
 std::string Eet::getChyba()
@@ -272,9 +228,21 @@ EETCODE Eet::sendTrzbaImpl(EetData data)
         return EET_ERROR;
     }
 
-    if(m_rezim<STANDARDNI || m_rezim>ZJEDNODUSENY)
+    if(!regexEic(m_eicPopl))
     {
-        m_chyba = "Chyba v Režim tržby";
+        m_chyba = "Chyba v EIČ poplatníka";
+        return EET_ERROR;
+    }
+
+    if(m_idJednotky<1 || m_idJednotky>999999999)
+    {
+        m_chyba = "Chyba v Označení evidenční jednotky";
+        return EET_ERROR;
+    }
+
+    if(!regexString20(m_idPokl))
+    {
+        m_chyba = "Chyba v Označení pokladního zařízení";
         return EET_ERROR;
     }
 
@@ -284,39 +252,22 @@ EETCODE Eet::sendTrzbaImpl(EetData data)
         return EET_ERROR;
     }
 
-    std::stringstream ss;
-    ss << m_dicPopl << "|" << m_idProvoz << "|" << m_idPokl << "|" << data.getPoradCis() << "|" << data.getDatTrzby() << "|" << data.getCelkTrzba();
-    createPkpBkp(ss.str());
-
     m_values.clear();
-    m_values.insert(StringPair("prvni_zaslani", formatBool(data.getPrvniZaslani())));
-    m_values.insert(StringPair("dat_odesl", data.getDatOdesl()));
     m_values.insert(StringPair("uuid_zpravy", uuid4()));
+    m_values.insert(StringPair("dat_odesl", data.getDatOdesl()));
+    m_values.insert(StringPair("prvni_zaslani", formatBool(data.getPrvniZaslani())));
     m_values.insert(StringPair("overeni", formatBool(m_overeni)));
     m_values.insert(StringPair("certb64", formatCertificate()));
-    m_values.insert(StringPair("dic_popl", m_dicPopl));
-    m_values.insert(StringPair("dic_poverujiciho", m_dicPoverujiciho));
-    m_values.insert(StringPair("id_provoz", EetData::formatString("%d", m_idProvoz)));
+    m_values.insert(StringPair("eic_popl", m_eicPopl));
+    m_values.insert(StringPair("eic_poverujiciho", m_eicPoverujiciho));
+    m_values.insert(StringPair("povereni_vice_popl", m_eicPoverujiciho.empty() && !m_povereniVicePopl ? "" : formatBool(m_povereniVicePopl)));
+    m_values.insert(StringPair("id_jednotky", EetData::formatString("%d", m_idJednotky)));
     m_values.insert(StringPair("id_pokl", m_idPokl));
     m_values.insert(StringPair("porad_cis", data.getPoradCis()));
     m_values.insert(StringPair("dat_trzby", data.getDatTrzby()));
     m_values.insert(StringPair("celk_trzba", data.getCelkTrzba()));
-    m_values.insert(StringPair("zakl_nepodl_dph", data.getZaklNepodlDph()));
-    m_values.insert(StringPair("zakl_dan1", data.getZaklDan1()));
-    m_values.insert(StringPair("dan1", data.getDan1()));
-    m_values.insert(StringPair("zakl_dan2", data.getZaklDan2()));
-    m_values.insert(StringPair("dan2", data.getDan2()));
-    m_values.insert(StringPair("zakl_dan3", data.getZaklDan3()));
-    m_values.insert(StringPair("dan3", data.getDan3()));
-    m_values.insert(StringPair("cest_sluz", data.getCestSluz()));
-    m_values.insert(StringPair("pouzit_zboz1", data.getPouzitZboz1()));
-    m_values.insert(StringPair("pouzit_zboz2", data.getPouzitZboz2()));
-    m_values.insert(StringPair("pouzit_zboz3", data.getPouzitZboz3()));
     m_values.insert(StringPair("urceno_cerp_zuct", data.getUrcenoCerpZuct()));
     m_values.insert(StringPair("cerp_zuct", data.getCerpZuct()));
-    m_values.insert(StringPair("rezim", EetData::formatString("%d", m_rezim)));
-    m_values.insert(StringPair("bkp", formatBkp()));
-    m_values.insert(StringPair("pkp", formatPkp()));
 
     std::string templateBody = fillTemplate(template_body);
     m_values.insert(StringPair("soap:Body", templateBody));
@@ -331,22 +282,25 @@ EETCODE Eet::sendTrzbaImpl(EetData data)
 
     std::string response;
     CURL *curl;
-    CURLcode res;
+    CURLcode res = CURLE_OK;
+    struct curl_slist *headers = NULL;
     curl = curl_easy_init();
     if(curl)
     {
-        curl_easy_setopt(curl, CURLOPT_HEADER, "SOAPACTION: http://fs.mfcr.cz/eet/OdeslaniTrzby");
-        curl_easy_setopt(curl, CURLOPT_HEADER, "Content-Type: text/xml;charset=UTF-8");
+        headers = curl_slist_append(headers, EetData::formatString("SOAPAction: %s", SOAPACTION).c_str());
+        headers = curl_slist_append(headers, "Content-Type: text/xml; charset=utf-8");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(curl, CURLOPT_URL, m_playground?PGURL:PRODUKCNIURL);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, templateRequest.c_str());
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)templateRequest.size());
         curl_easy_setopt(curl, CURLOPT_CRLF, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_1);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+        curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
         res = curl_easy_perform(curl);
+        curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
     }
     if(res == CURLE_OK)
@@ -354,17 +308,17 @@ EETCODE Eet::sendTrzbaImpl(EetData data)
         showDebug("Response:");
         showDebug(response);
         parseResponse(response, m_overeni);
-        if(m_overeni == OVEROVACI && !m_fik.empty())
+        if(m_overeni == OVEROVACI && !m_pok.empty())
         {
-            m_fik.clear();
+            m_pok.clear();
             if(!m_varovani.empty()) return EET_VAROVANI;
             else return EET_OVERENO;
         }
         if(!m_chyba.empty()) return EET_CHYBA;
         if(!m_varovani.empty()) return EET_VAROVANI;
-        if(m_fik.empty())
+        if(m_pok.empty())
         {
-            m_chyba = "Nepodařilo se získat FIK";
+            m_chyba = "Nepodařilo se získat POK";
             return EET_ERROR;
         }
     }
@@ -389,6 +343,26 @@ bool Eet::createKeyCert()
     PKCS12 *p12;
     OpenSSL_add_all_algorithms();
     ERR_load_crypto_strings();
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    // Řada reálných produkčních .p12 certifikátů (např. od Finanční správy) je
+    // zašifrována starším algoritmem RC2-40-CBC. OpenSSL 3.0 tyto algoritmy
+    // přesunulo do tzv. "legacy" provideru, který se defaultně nenačítá - bez
+    // něj parsování takového PKCS#12 souboru selže s chybou "unsupported".
+    static bool providersLoaded = false;
+    if(!providersLoaded)
+    {
+        if(OSSL_PROVIDER_load(NULL, "legacy") == NULL)
+        {
+            showDebug("Nepodařilo se načíst OpenSSL legacy provider (starší RC2/3DES šifrování v PKCS#12 nemusí fungovat)");
+        }
+        if(OSSL_PROVIDER_load(NULL, "default") == NULL)
+        {
+            showDebug("Nepodařilo se načíst OpenSSL default provider");
+        }
+        providersLoaded = true;
+    }
+#endif
 
     #ifndef _WIN32
         fp = fopen(m_certPath.c_str(), "rb");
@@ -448,95 +422,102 @@ bool Eet::createKeyCert()
     return m_key!=NULL && m_cert!=NULL;
 }
 
-RSA *Eet::createRSA(bool pub)
+EVP_PKEY *Eet::createPKey(bool pub)
 {
-    RSA *rsa= NULL;
+    EVP_PKEY *pkey = NULL;
     if(pub)
     {
-        BIO *keybio;
-        keybio = BIO_new_mem_buf(m_cert, -1);
+        BIO *keybio = BIO_new_mem_buf(m_cert, -1);
         if(keybio==NULL)
         {
             showDebug("Failed to create key BIO");
             return NULL;
         }
-        rsa = PEM_read_bio_RSA_PUBKEY(keybio, &rsa, NULL, NULL);
+        pkey = PEM_read_bio_PUBKEY(keybio, NULL, NULL, NULL);
+        BIO_free(keybio);
     }
     else
     {
-        BIO *keybio;
-        keybio = BIO_new_mem_buf(m_key, -1);
+        BIO *keybio = BIO_new_mem_buf(m_key, -1);
         if(keybio==NULL)
         {
             showDebug("Failed to create key BIO");
             return NULL;
         }
-        rsa = PEM_read_bio_RSAPrivateKey(keybio, &rsa, NULL, NULL);
+        pkey = PEM_read_bio_PrivateKey(keybio, NULL, NULL, NULL);
+        BIO_free(keybio);
     }
-    if(rsa == NULL)
+    if(pkey == NULL)
     {
-        showDebug("Failed to create RSA");
+        showDebug("Failed to create EVP_PKEY");
     }
-    return rsa;
-}
-
-void Eet::createPkpBkp(const std::string &plaintext)
-{
-    m_pkp.clear();
-    m_bkp.clear();
-    std::vector<unsigned char> hash256 = sha256(plaintext);
-    showDebug(EetData::formatString("Plaintext\n%s\n", plaintext.c_str()));
-    showDebug(EetData::formatString("Hash\n%s\n", byte2Hex(hash256).c_str()));
-    if(!m_key) return;
-    if(!createPkp(hash256)) return;
-    showDebug(EetData::formatString("PKP\n%s\n", formatPkp().c_str()));
-    m_bkp = sha1(m_pkp);
-    showDebug(EetData::formatString("BKP\n%s\n", formatBkp().c_str()));
-}
-
-bool Eet::createPkp(std::vector<unsigned char> data)
-{
-    RSA *rsa = createRSA(false);
-    if(rsa == NULL) return false;
-    std::vector<unsigned char> block(RSA_size(rsa));
-    unsigned int siglen;
-    int ret = RSA_sign(NID_sha256, &data[0], data.size(), &block[0], &siglen, rsa);
-    if(ret) m_pkp = block;
-    return ret;
+    return pkey;
 }
 
 std::vector<unsigned char> Eet::createSignature(const std::string &plaintext)
 {
-    RSA *rsa = createRSA(false);
-    std::vector<unsigned char> block;
-    if(rsa == NULL) return block;
-    std::vector<unsigned char> hash = sha256(plaintext);
-    block.resize(RSA_size(rsa));
-    unsigned int siglen;
-    int ret = RSA_sign(NID_sha256, &hash[0], hash.size(), &block[0], &siglen, rsa);
-    if(!ret) showDebug("Neco se podelalo");
-    return block;
-}
+    std::vector<unsigned char> signature;
+    EVP_PKEY *pkey = createPKey(false);
+    if(pkey == NULL) return signature;
 
-std::vector<unsigned char> Eet::sha1(std::vector<unsigned char> data)
-{
-    std::vector<unsigned char> hash;
-    hash.resize(20);
-    SHA_CTX sha1;
-    SHA1_Init(&sha1);
-    SHA1_Update(&sha1, &data[0], data.size());
-    SHA1_Final(&hash[0], &sha1);
-    return hash;
+    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+    if(mdctx == NULL)
+    {
+        showDebug("Failed to create EVP_MD_CTX");
+        EVP_PKEY_free(pkey);
+        return signature;
+    }
+
+    const unsigned char *tbs = (const unsigned char *)plaintext.c_str();
+    size_t tbslen = plaintext.size();
+    size_t siglen = 0;
+    bool ok = EVP_DigestSignInit(mdctx, NULL, EVP_sha256(), NULL, pkey) == 1
+              && EVP_DigestSign(mdctx, NULL, &siglen, tbs, tbslen) == 1;
+
+    if(ok)
+    {
+        signature.resize(siglen);
+        if(EVP_DigestSign(mdctx, &signature[0], &siglen, tbs, tbslen) != 1)
+        {
+            showDebug("Neco se podelalo");
+            signature.clear();
+        }
+        else
+        {
+            signature.resize(siglen);
+        }
+    }
+    else
+    {
+        showDebug("Neco se podelalo");
+    }
+
+    EVP_MD_CTX_free(mdctx);
+    EVP_PKEY_free(pkey);
+    return signature;
 }
 
 std::vector<unsigned char> Eet::sha256(const std::string &str)
 {
     std::vector<unsigned char> hash;
-    hash.resize(SHA256_DIGEST_LENGTH);
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, str.c_str(), str.size());
-    SHA256_Final(&hash[0], &sha256);
+    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+    unsigned int len = 0;
+    hash.resize(EVP_MD_size(EVP_sha256()));
+    if(mdctx != NULL)
+    {
+        if(EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL) == 1
+           && EVP_DigestUpdate(mdctx, str.c_str(), str.size()) == 1
+           && EVP_DigestFinal_ex(mdctx, &hash[0], &len) == 1)
+        {
+            hash.resize(len);
+        }
+        else
+        {
+            showDebug("Failed to compute SHA-256");
+            hash.clear();
+        }
+        EVP_MD_CTX_free(mdctx);
+    }
     return hash;
 }
 
@@ -574,8 +555,8 @@ std::string Eet::uuid4()
             uuid.__rnd[i] = rand() % 256;
         }
     }
-    // Refer Section 4.2 of RFC-4122
-    // https://tools.ietf.org/html/rfc4122#section-4.2
+    // Refer Section 4.2 of RFC-4122 / RFC-9562
+    // UUID verze 4, varianta 10xx (0x8-0xb) - vyžadováno XSD schématem EET 2.0 (UUIDType)
     uuid.clk_seq_hi_res = (uint8_t) ((uuid.clk_seq_hi_res & 0x3F) | 0x80);
     uuid.time_hi_and_version = (uint16_t) ((uuid.time_hi_and_version & 0x0FFF) | 0x4000);
     snprintf(uuids, 38, "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
@@ -612,24 +593,6 @@ std::string Eet::byte2Hex(std::vector<unsigned char> data)
         ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)data[i];
     }
     return ss.str();
-}
-
-std::string Eet::formatPkp()
-{
-    if(m_pkp.empty()) return "";
-    return base64Encode(m_pkp);
-}
-
-std::string Eet::formatBkp()
-{
-    if(m_bkp.empty()) return "";
-    std::string res = byte2Hex(m_bkp);
-    if(res.length() < 40) return "";
-    res.insert(8,1,'-');
-    res.insert(17,1,'-');
-    res.insert(26,1,'-');
-    res.insert(35,1,'-');
-    return res;
 }
 
 std::string Eet::formatCertificate()
@@ -686,19 +649,21 @@ std::string Eet::fillTemplate(const std::string &templ)
 
 void Eet::parseResponse(const std::string &response, OVERENI overeni)
 {
-    m_fik = "";
+    m_pok = "";
     m_chyba = "";
     m_varovani = "";
+    size_t pos1, pos2;
     if(overeni == OVEROVACI)
     {
-        if(response.find("eet:Chyba kod=\"0\"") != std::string::npos)
+        // V ověřovacím módu značí úspěch chybový kód 0 (element Chyba, kod="0")
+        if(response.find("Chyba kod=\"0\"") != std::string::npos)
         {
-            m_fik = "Overeno";
+            m_pok = "Overeno";
             //response obsahuje Varovani
-            if(response.find("<eet:Varovani") != std::string::npos)
+            if(response.find(":Varovani") != std::string::npos || response.find("<Varovani") != std::string::npos)
             {
-                size_t pos1, pos2;
-                for(size_t i=response.find("<eet:Varovani"); i<response.length(); ++i)
+                size_t start = response.find("Varovani");
+                for(size_t i=start; i<response.length(); ++i)
                 {
                     if(response.substr(i,10) == "kod_varov=")
                     {
@@ -718,18 +683,23 @@ void Eet::parseResponse(const std::string &response, OVERENI overeni)
             return;
         }
     }
-    size_t fik = response.find("Potvrzeni fik");
-    size_t pos1, pos2;
-    if(fik != std::string::npos)
+    // Element Potvrzeni obsahuje atribut pok (POK) - viz PokType v EETXMLSchema.xsd
+    size_t pok = response.find("Potvrzeni ");
+    if(pok != std::string::npos)
     {
-        pos1 = response.find('"', fik);
-        pos2 = response.find('"', pos1+1);
-        m_fik = response.substr(pos1+1, pos2-pos1-1);
+        size_t attr = response.find("pok=", pok);
+        size_t elementEnd = response.find('>', pok);
+        if(attr != std::string::npos && (elementEnd == std::string::npos || attr < elementEnd))
+        {
+            pos1 = response.find('"', attr);
+            pos2 = response.find('"', pos1+1);
+            m_pok = response.substr(pos1+1, pos2-pos1-1);
+        }
     }
     //response obsahuje Varovani
-    if(response.find("<eet:Varovani") != std::string::npos)
+    if(response.find("Varovani") != std::string::npos)
     {
-        for(size_t i=response.find("<eet:Varovani"); i<response.length(); ++i)
+        for(size_t i=response.find("Varovani"); i<response.length(); ++i)
         {
             if(response.substr(i,10) == "kod_varov=")
             {
@@ -747,9 +717,9 @@ void Eet::parseResponse(const std::string &response, OVERENI overeni)
         }
     }
     //response obsahuje Chyba
-    if(response.find("<eet:Chyba") != std::string::npos)
+    if(response.find("Chyba") != std::string::npos)
     {
-        for(size_t i=response.find("<eet:Chyba"); i<response.length(); ++i)
+        for(size_t i=response.find("Chyba"); i<response.length(); ++i)
         {
             if(response.substr(i,4) == "kod=")
             {
@@ -774,10 +744,38 @@ bool Eet::regexString20(const std::string &text)
     return std::regex_match(text, reg);
 }
 
-bool Eet::regexDic(const std::string &text)
+bool Eet::regexEic(const std::string &text)
 {
     std::regex reg("CZ[0-9]{8,10}");
-    return std::regex_match(text, reg);
+    if(!std::regex_match(text, reg)) return false;
+    std::string cislo = text.substr(2);
+    if(cislo.length() == 8 && !checkIcChecksum(cislo))
+    {
+        // Kontrolní součet lze ověřit pouze u EIČ ve tvaru CZ+IČO (8 číslic).
+        // U EIČ odvozeného z rodného čísla nebo přiděleného VČP (9-10 číslic)
+        // se kontrolní součet neověřuje.
+        return false;
+    }
+    return true;
+}
+
+bool Eet::checkIcChecksum(const std::string &ic)
+{
+    // Kontrolní součet IČO (modulo 11, váhy 8-2), stejný algoritmus jako pro DIČ
+    // právnických osob (DIČ = CZ + IČO). Neplatí pro EIČ odvozené z rodného čísla
+    // nebo pro přidělené VČP.
+    if(ic.length() != 8) return false;
+    int soucet = 0;
+    for(int i=0; i<7; i++)
+    {
+        soucet += (ic[i]-'0')*(8-i);
+    }
+    soucet %= 11;
+    int c;
+    if(soucet == 0 || soucet == 10) c = 1;
+    else if(soucet == 1) c = 0;
+    else c = 11 - soucet;
+    return (ic[7]-'0') == c;
 }
 
 EetData::EetData()
@@ -791,25 +789,13 @@ EetData::EetData()
     m_datTrzby = formatTime(::time(NULL));
     m_celkTrzba = "0.00";
     // Optional Data - start
-    m_zaklNepodlDph = "";
-    m_zaklDan1 = "";
-    m_dan1 = "";
-    m_zaklDan2 = "";
-    m_dan2 = "";
-    m_zaklDan3 = "";
-    m_dan3 = "";
-    m_cestSluz = "";
-    m_pouzitZboz1 = "";
-    m_pouzitZboz2 = "";
-    m_pouzitZboz3 = "";
     m_urcenoCerpZuct = "";
     m_cerpZuct = "";
     // Optional Data - end
     //Data - end
 }
 
-EetData::EetData(const std::string &poradCis, double celkTrzba, double *zaklNepodlDph, double *zaklDan1, double *dan1, double *zaklDan2, double *dan2, double *zaklDan3, double *dan3,
-                 const ZASLANI &prvniZaslani, time_t datOdesl, time_t datTrzby, double *cestSluz, double *pouzitZboz1, double *pouzitZboz2, double *pouzitZboz3,
+EetData::EetData(const std::string &poradCis, double celkTrzba, const ZASLANI &prvniZaslani, time_t datOdesl, time_t datTrzby,
                  double *urcenoCerpZuct, double *cerpZuct)
 {
     //Hlavicka - start
@@ -821,17 +807,6 @@ EetData::EetData(const std::string &poradCis, double celkTrzba, double *zaklNepo
     m_datTrzby = formatTime(datTrzby);
     m_celkTrzba = formatDouble(celkTrzba);
     // Optional Data - start
-    m_zaklNepodlDph = zaklNepodlDph?formatDouble(*zaklNepodlDph):"";
-    m_zaklDan1 = zaklDan1?formatDouble(*zaklDan1):"";
-    m_dan1 = dan1?formatDouble(*dan1):"";
-    m_zaklDan2 = zaklDan2?formatDouble(*zaklDan2):"";
-    m_dan2 = dan2?formatDouble(*dan2):"";
-    m_zaklDan3 = zaklDan3?formatDouble(*zaklDan3):"";
-    m_dan3 = dan3?formatDouble(*dan3):"";
-    m_cestSluz = cestSluz?formatDouble(*cestSluz):"";
-    m_pouzitZboz1 = pouzitZboz1?formatDouble(*pouzitZboz1):"";
-    m_pouzitZboz2 = pouzitZboz2?formatDouble(*pouzitZboz2):"";
-    m_pouzitZboz3 = pouzitZboz3?formatDouble(*pouzitZboz3):"";
     m_urcenoCerpZuct = urcenoCerpZuct?formatDouble(*urcenoCerpZuct):"";
     m_cerpZuct = cerpZuct?formatDouble(*cerpZuct):"";
     // Optional Data - end
@@ -869,61 +844,6 @@ EETCODE EetData::checkData()
         return EET_ERROR;
     }
     // Optional Data - start
-    if(!m_zaklNepodlDph.empty() && !regexDouble(m_zaklNepodlDph))
-    {
-        m_chyba = "Chyba v Celková částka plnění osvobozených od DPH, ostatních plnění";
-        return EET_ERROR;
-    }
-    if(!m_zaklDan1.empty() && !regexDouble(m_zaklDan1))
-    {
-        m_chyba = "Chyba v Celkový základ daně se základní sazbou DPH";
-        return EET_ERROR;
-    }
-    if(!m_dan1.empty() && !regexDouble(m_dan1))
-    {
-        m_chyba = "Chyba v Celková DPH se základní sazbou";
-        return EET_ERROR;
-    }
-    if(!m_zaklDan2.empty() && !regexDouble(m_zaklDan2))
-    {
-        m_chyba = "Chyba v Celkový základ daně s první sníženou sazbou DPH";
-        return EET_ERROR;
-    }
-    if(!m_dan2.empty() && !regexDouble(m_dan2))
-    {
-        m_chyba = "Chyba v Celková DPH s první sníženou sazbou";
-        return EET_ERROR;
-    }
-    if(!m_zaklDan3.empty() && !regexDouble(m_zaklDan3))
-    {
-        m_chyba = "Chyba v Celkový základ daně s druhou sníženou sazbou DPH";
-        return EET_ERROR;
-    }
-    if(!m_dan3.empty() && !regexDouble(m_dan3))
-    {
-        m_chyba = "Chyba v Celková DPH s druhou sníženou sazbou";
-        return EET_ERROR;
-    }
-    if(!m_cestSluz.empty() && !regexDouble(m_cestSluz))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro cestovní službu";
-        return EET_ERROR;
-    }
-    if(!m_pouzitZboz1.empty() && !regexDouble(m_pouzitZboz1))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro prodej použitého zboží se základní sazbou";
-        return EET_ERROR;
-    }
-    if(!m_pouzitZboz2.empty() && !regexDouble(m_pouzitZboz2))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro prodej použitého zboží s první sníženou sazbou";
-        return EET_ERROR;
-    }
-    if(!m_pouzitZboz3.empty() && !regexDouble(m_pouzitZboz3))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro prodej použitého zboží s druhou sníženou sazbou";
-        return EET_ERROR;
-    }
     if(!m_urcenoCerpZuct.empty() && !regexDouble(m_urcenoCerpZuct))
     {
         m_chyba = "Chyba v Celková částka plateb určená k následnému čerpání nebo zúčtování";
@@ -1106,314 +1026,6 @@ EETCODE EetData::setCelkTrzba(double celkTrzba)
     {
         m_chyba = "Chyba v Celková částka tržby";
         m_celkTrzba = "";
-        return EET_ERROR;
-    }
-    return EET_OK;
-}
-
-std::string EetData::getZaklNepodlDph() const
-{
-    return m_zaklNepodlDph;
-}
-
-EETCODE EetData::setZaklNepodlDph(const std::string &zaklNepodlDph)
-{
-    if(!regexDouble(zaklNepodlDph))
-    {
-        m_chyba = "Chyba v Celková částka plnění osvobozených od DPH, ostatních plnění";
-        return EET_ERROR;
-    }
-    m_zaklNepodlDph = zaklNepodlDph;
-    return EET_OK;
-}
-
-EETCODE EetData::setZaklNepodlDph(double zaklNepodlDph)
-{
-    m_zaklNepodlDph = formatDouble(zaklNepodlDph);
-    if(!regexDouble(m_zaklNepodlDph))
-    {
-        m_chyba = "Chyba v Celková částka plnění osvobozených od DPH, ostatních plnění";
-        m_zaklNepodlDph = "";
-        return EET_ERROR;
-    }
-    return EET_OK;
-}
-
-std::string EetData::getZaklDan1() const
-{
-    return m_zaklDan1;
-}
-
-EETCODE EetData::setZaklDan1(const std::string &zaklDan1)
-{
-    if(!regexDouble(zaklDan1))
-    {
-        m_chyba = "Chyba v Celkový základ daně se základní sazbou DPH";
-        return EET_ERROR;
-    }
-    m_zaklDan1 = zaklDan1;
-    return EET_OK;
-}
-
-EETCODE EetData::setZaklDan1(double zaklDan1)
-{
-    m_zaklDan1 = formatDouble(zaklDan1);
-    if(!regexDouble(m_zaklDan1))
-    {
-        m_chyba = "Chyba v Celkový základ daně se základní sazbou DPH";
-        m_zaklDan1 = "";
-        return EET_ERROR;
-    }
-    return EET_OK;
-}
-
-std::string EetData::getDan1() const
-{
-    return m_dan1;
-}
-
-EETCODE EetData::setDan1(const std::string &dan1)
-{
-    if(!regexDouble(dan1))
-    {
-        m_chyba = "Chyba v Celková DPH se základní sazbou";
-        return EET_ERROR;
-    }
-    m_dan1 = dan1;
-    return EET_OK;
-}
-
-EETCODE EetData::setDan1(double dan1)
-{
-    m_dan1 = formatDouble(dan1);
-    if(!regexDouble(m_dan1))
-    {
-        m_chyba = "Chyba v Celková DPH se základní sazbou";
-        m_dan1 = "";
-        return EET_ERROR;
-    }
-    return EET_OK;
-}
-
-std::string EetData::getZaklDan2() const
-{
-    return m_zaklDan2;
-}
-
-EETCODE EetData::setZaklDan2(const std::string &zaklDan2)
-{
-    if(!regexDouble(zaklDan2))
-    {
-        m_chyba = "Chyba v Celkový základ daně s první sníženou sazbou DPH";
-        return EET_ERROR;
-    }
-    m_zaklDan2 = zaklDan2;
-    return EET_OK;
-}
-
-EETCODE EetData::setZaklDan2(double zaklDan2)
-{
-    m_zaklDan2 = formatDouble(zaklDan2);
-    if(!regexDouble(m_zaklDan2))
-    {
-        m_chyba = "Chyba v Celkový základ daně s první sníženou sazbou DPH";
-        m_zaklDan2 = "";
-        return EET_ERROR;
-    }
-    return EET_OK;
-}
-
-std::string EetData::getDan2() const
-{
-    return m_dan2;
-}
-
-EETCODE EetData::setDan2(const std::string &dan2)
-{
-    if(!regexDouble(dan2))
-    {
-        m_chyba = "Chyba v Celková DPH s první sníženou sazbou";
-        return EET_ERROR;
-    }
-    m_dan2 = dan2;
-    return EET_OK;
-}
-
-EETCODE EetData::setDan2(double dan2)
-{
-    m_dan2 = formatDouble(dan2);
-    if(!regexDouble(m_dan2))
-    {
-        m_chyba = "Chyba v Celková DPH s první sníženou sazbou";
-        m_dan2 = "";
-        return EET_ERROR;
-    }
-    return EET_OK;
-}
-
-std::string EetData::getZaklDan3() const
-{
-    return m_zaklDan3;
-}
-
-EETCODE EetData::setZaklDan3(const std::string &zaklDan3)
-{
-    if(!regexDouble(zaklDan3))
-    {
-        m_chyba = "Chyba v Celkový základ daně s druhou sníženou sazbou DPH";
-        return EET_ERROR;
-    }
-    m_zaklDan3 = zaklDan3;
-    return EET_OK;
-}
-
-EETCODE EetData::setZaklDan3(double zaklDan3)
-{
-    m_zaklDan3 = formatDouble(zaklDan3);
-    if(!regexDouble(m_zaklDan3))
-    {
-        m_chyba = "Chyba v Celkový základ daně s druhou sníženou sazbou DPH";
-        m_zaklDan3 = "";
-        return EET_ERROR;
-    }
-    return EET_OK;
-}
-
-std::string EetData::getDan3() const
-{
-    return m_dan3;
-}
-
-EETCODE EetData::setDan3(const std::string &dan3)
-{
-    if(!regexDouble(dan3))
-    {
-        m_chyba = "Chyba v Celková DPH s druhou sníženou sazbou";
-        return EET_ERROR;
-    }
-    m_dan3 = dan3;
-    return EET_OK;
-}
-
-EETCODE EetData::setDan3(double dan3)
-{
-    m_dan3 = formatDouble(dan3);
-    if(!regexDouble(m_dan3))
-    {
-        m_chyba = "Chyba v Celková DPH s druhou sníženou sazbou";
-        m_dan3 = "";
-        return EET_ERROR;
-    }
-    return EET_OK;
-}
-
-std::string EetData::getCestSluz() const
-{
-    return m_cestSluz;
-}
-
-EETCODE EetData::setCestSluz(const std::string &cestSluz)
-{
-    if(!regexDouble(cestSluz))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro cestovní službu";
-        return EET_ERROR;
-    }
-    m_cestSluz = cestSluz;
-    return EET_OK;
-}
-
-EETCODE EetData::setCestSluz(double cestSluz)
-{
-    m_cestSluz = formatDouble(cestSluz);
-    if(!regexDouble(m_cestSluz))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro cestovní službu";
-        m_cestSluz = "";
-        return EET_ERROR;
-    }
-    return EET_OK;
-}
-
-std::string EetData::getPouzitZboz1() const
-{
-    return m_pouzitZboz1;
-}
-
-EETCODE EetData::setPouzitZboz1(const std::string &pouzitZboz1)
-{
-    if(!regexDouble(pouzitZboz1))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro prodej použitého zboží se základní sazbou";
-        return EET_ERROR;
-    }
-    m_pouzitZboz1 = pouzitZboz1;
-    return EET_OK;
-}
-
-EETCODE EetData::setPouzitZboz1(double pouzitZboz1)
-{
-    m_pouzitZboz1 = formatDouble(pouzitZboz1);
-    if(!regexDouble(m_pouzitZboz1))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro prodej použitého zboží se základní sazbou";
-        m_pouzitZboz1 = "";
-        return EET_ERROR;
-    }
-    return EET_OK;
-}
-
-std::string EetData::getPouzitZboz2() const
-{
-    return m_pouzitZboz2;
-}
-
-EETCODE EetData::setPouzitZboz2(const std::string &pouzitZboz2)
-{
-    if(!regexDouble(pouzitZboz2))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro prodej použitého zboží s první sníženou sazbou";
-        return EET_ERROR;
-    }
-    m_pouzitZboz2 = pouzitZboz2;
-    return EET_OK;
-}
-
-EETCODE EetData::setPouzitZboz2(double pouzitZboz2)
-{
-    m_pouzitZboz2 = formatDouble(pouzitZboz2);
-    if(!regexDouble(m_pouzitZboz2))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro prodej použitého zboží s první sníženou sazbou";
-        m_pouzitZboz2 = "";
-        return EET_ERROR;
-    }
-    return EET_OK;
-}
-
-std::string EetData::getPouzitZboz3() const
-{
-    return m_pouzitZboz3;
-}
-
-EETCODE EetData::setPouzitZboz3(const std::string &pouzitZboz3)
-{
-    if(!regexDouble(pouzitZboz3))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro prodej použitého zboží s druhou sníženou sazbou";
-        return EET_ERROR;
-    }
-    m_pouzitZboz3 = pouzitZboz3;
-    return EET_OK;
-}
-
-EETCODE EetData::setPouzitZboz3(double pouzitZboz3)
-{
-    m_pouzitZboz3 = formatDouble(pouzitZboz3);
-    if(!regexDouble(m_pouzitZboz3))
-    {
-        m_chyba = "Chyba v Celková částka v režimu DPH pro prodej použitého zboží s druhou sníženou sazbou";
-        m_pouzitZboz3 = "";
         return EET_ERROR;
     }
     return EET_OK;
