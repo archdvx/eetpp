@@ -15,6 +15,8 @@
 #include <sstream>
 #include <string.h>
 #include <algorithm>
+#include <cstdlib>
+#include <cmath>
 #include <regex>
 #include <locale>
 #include <openssl/pem.h>
@@ -54,11 +56,6 @@
 #else
     #define VSNPRINTF vsnprintf
 #endif
-
-struct tecka : std::numpunct<char>
-{
-    char do_decimal_point() const { return '.'; }
-};
 
 static size_t curlCallback(void *contents, size_t size, size_t nmemb, void *userp)
 {
@@ -311,7 +308,7 @@ EETCODE Eet::sendTrzbaImpl(EetData data)
         if(m_overeni == OVEROVACI && !m_pok.empty())
         {
             m_pok.clear();
-            if(!m_varovani.empty()) return EET_VAROVANI;
+            if(!m_varovani.empty()) return EET_OVERENO_SVAROVANIM;
             else return EET_OVERENO;
         }
         if(!m_chyba.empty()) return EET_CHYBA;
@@ -697,7 +694,7 @@ void Eet::parseResponse(const std::string &response, OVERENI overeni)
         }
     }
     //response obsahuje Varovani
-    if(response.find("Varovani") != std::string::npos)
+    if(response.find(":Varovani") != std::string::npos || response.find("<Varovani") != std::string::npos)
     {
         for(size_t i=response.find("Varovani"); i<response.length(); ++i)
         {
@@ -883,9 +880,10 @@ std::string EetData::formatString(const char *fmt, ...)
 std::string EetData::formatDouble(double val)
 {
     std::ostringstream convert;
-    std::locale eetlocale(std::locale(), new tecka);
-    convert.imbue(eetlocale);
-    convert << std::fixed << std::setprecision(2) << val;
+    convert.imbue(std::locale::classic());
+    double roundedVal = std::round(val * 100.0) / 100.0;
+    if (roundedVal == 0.0) roundedVal = 0.0;
+    convert << std::fixed << std::setprecision(2) << roundedVal;
     return convert.str();
 }
 
@@ -897,17 +895,17 @@ bool EetData::regexDouble(const std::string &text)
 
 std::string EetData::formatTime(time_t time)
 {
-    struct tm *timeinfo = localtime(&time);
+    struct tm localTm = *localtime(&time);
     char buffer[512];
-    int len = strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S", timeinfo);
+    int len = strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S", &localTm);
     std::string s(buffer, len);
-    int gmtoff;
-#if _WIN32
-    gmtoff = -(timezone - (timeinfo->tm_isdst>0?3600:0))/3600;
-#else
-    gmtoff = timeinfo->tm_gmtoff/3600;
-#endif
-    return formatString("%s+0%d:00", s.c_str(), gmtoff);
+    struct tm utcTm = *gmtime(&time);
+    utcTm.tm_isdst = localTm.tm_isdst;
+    time_t utcAsLocalDst = mktime(&utcTm);
+    long gmtoffSeconds = (long)difftime(time, utcAsLocalDst);
+    int gmtoffHours = (int)(gmtoffSeconds / 3600);
+
+    return formatString("%s%c%02d:00", s.c_str(), gmtoffHours>=0?'+':'-', std::abs(gmtoffHours));
 }
 
 bool EetData::regexTime(const std::string &text)

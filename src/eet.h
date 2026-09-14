@@ -71,6 +71,7 @@ enum EETCODE {
     EET_VAROVANI, /**< Tržba odeslána s varováním */
     EET_CHYBA, /**< Tržba odeslána s chybou */
     EET_OVERENO, /**< Tržba v ověřovacím módu odeslána úspěšně */
+    EET_OVERENO_SVAROVANIM, /**< Tržba v ověřovacím módu odeslána s varováním */
     EET_ERROR /**< Chyba socketu, chybný certifikát, chybně zadané EIČ atd. */
 };
 
