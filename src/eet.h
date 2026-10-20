@@ -12,10 +12,11 @@
 #include <string>
 #include <vector>
 #include <map>
-#include <new>
+#include <ctime>
+#include <memory>
 #include <openssl/evp.h>
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(EETPP_STATIC)
 # ifdef eetpp_EXPORTS
 #  define EETPP_EXPORT __declspec(dllexport)
 # else
@@ -23,6 +24,12 @@
 #endif
 #else
 # define EETPP_EXPORT
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+# define EET_PRINTF_FORMAT(fmt, args) __attribute__((format(printf, fmt, args)))
+#else
+# define EET_PRINTF_FORMAT(fmt, args)
 #endif
 
 #define EETVERSION "2.00.0"
@@ -93,8 +100,8 @@ public:
      * \param cerpZuct Celková částka plateb, které jsou následným čerpáním nebo zúčtováním platby
      */
     EetData(const std::string &poradCis, double celkTrzba, const ZASLANI &prvniZaslani=PRVNI,
-            time_t datOdesl=::time(NULL), time_t datTrzby=::time(NULL),
-            double *urcenoCerpZuct=NULL, double *cerpZuct=NULL);
+            time_t datOdesl=::time(nullptr), time_t datTrzby=::time(nullptr),
+            double *urcenoCerpZuct=nullptr, double *cerpZuct=nullptr);
 
     /*!
      * \brief Kontrola dat tržby podle xsd schématu
@@ -103,7 +110,7 @@ public:
     /*!
      * \brief Format řetězců
      */
-    static std::string formatString(const char *fmt, ...);
+    static std::string formatString(const char *fmt, ...) EET_PRINTF_FORMAT(1, 2);
     //Getters & setters
     /*!
      * \brief Text chyby při EET_ERROR
@@ -290,6 +297,10 @@ public:
      * \brief Nastavení playground prostředí
      */
     void setPlayground(bool playground);
+    /*!
+     * \brief Časový limit pro spojení a odeslání tržby v milisekundách (výchozí 10000)
+     */
+    void setTimeout(long timeoutMs);
     //Getters
     /*!
      * \brief Potvrzovací kód (POK)
@@ -332,23 +343,23 @@ private:
     //Data - end
     std::string m_certPath;
     std::string m_pass;
-    char *m_key;
-    char *m_cert;
+    std::shared_ptr<EVP_PKEY> m_pkey;
+    std::string m_cert;
+    std::string m_certChyba;
     StringMap m_values;
     std::string m_pok;
     std::string m_chyba;
     std::string m_varovani;
     bool m_playground;
+    long m_timeout;
 
     EETCODE sendTrzbaImpl(EetData data);
     bool createKeyCert();
-    EVP_PKEY *createPKey(bool pub);
     std::vector<unsigned char> createSignature(const std::string &plaintext);
     std::vector<unsigned char> sha256(const std::string &str);
     void showDebug(const std::string &text);
     std::string uuid4();
     std::string base64Encode(std::vector<unsigned char> data);
-    std::string byte2Hex(std::vector<unsigned char> data);
     std::string formatCertificate();
     /*!
      * \brief Format První zaslání údajů o tržbě, Příznak ověřovacího módu odesílání, Pověření více poplatníky

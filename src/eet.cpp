@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cmath>
+#include <cctype>
+#include <ctime>
 #include <regex>
 #include <locale>
 #include <openssl/pem.h>
@@ -27,35 +29,11 @@
 #include <openssl/provider.h>
 #endif
 #include <curl/curl.h>
-
-#if _MSC_VER
-    #define VSNPRINTF _vsnprintf
-    #if _MSC_VER < 1900
-    #define snprintf c99_snprintf
-    #define vsnprintf c99_vsnprintf
-    __inline int c99_vsnprintf(char *outBuf, size_t size, const char *format, va_list ap)
-    {
-        int count = -1;
-        if (size != 0)
-            count = _vsnprintf_s(outBuf, size, _TRUNCATE, format, ap);
-        if (count == -1)
-            count = _vscprintf(format, ap);
-        return count;
-    }
-
-    __inline int c99_snprintf(char *outBuf, size_t size, const char *format, ...)
-    {
-        int count;
-        va_list ap;
-        va_start(ap, format);
-        count = c99_vsnprintf(outBuf, size, format, ap);
-        va_end(ap);
-        return count;
-    }
-    #endif
-#else
-    #define VSNPRINTF vsnprintf
+#ifdef _WIN32
+#include <windows.h>
 #endif
+
+#define EET_DEFAULT_TIMEOUT 10000L
 
 static size_t curlCallback(void *contents, size_t size, size_t nmemb, void *userp)
 {
@@ -64,15 +42,15 @@ static size_t curlCallback(void *contents, size_t size, size_t nmemb, void *user
 }
 
 Eet::Eet()
-    : m_overeni(PRODUKCNI), m_eicPopl(""), m_eicPoverujiciho(""), m_povereniVicePopl(false), m_idJednotky(0), m_idPokl(""), m_certPath(""), m_pass(""), m_key(NULL), m_cert(NULL),
-      m_playground(true)
+    : m_overeni(PRODUKCNI), m_eicPopl(""), m_eicPoverujiciho(""), m_povereniVicePopl(false), m_idJednotky(0), m_idPokl(""), m_certPath(""), m_pass(""),
+      m_playground(false), m_timeout(EET_DEFAULT_TIMEOUT)
 {
 }
 
 Eet::Eet(const std::string &eicPopl, int idJednotky, const std::string &cert, const std::string &pass, const std::string &idPokl, const std::string &eicPoverujiciho,
          const OVERENI &overeni, bool playground)
     : m_overeni(overeni), m_eicPopl(eicPopl), m_eicPoverujiciho(eicPoverujiciho), m_povereniVicePopl(false), m_idJednotky(idJednotky), m_idPokl(idPokl), m_certPath(cert), m_pass(pass),
-      m_playground(playground)
+      m_playground(playground), m_timeout(EET_DEFAULT_TIMEOUT)
 {
     createKeyCert();
 }
@@ -175,6 +153,11 @@ void Eet::setPlayground(bool playground)
     m_playground = playground;
 }
 
+void Eet::setTimeout(long timeoutMs)
+{
+    m_timeout = timeoutMs;
+}
+
 std::string Eet::getPok()
 {
     return m_pok;
@@ -213,9 +196,9 @@ std::string Eet::getCurlVersion()
 
 EETCODE Eet::sendTrzbaImpl(EetData data)
 {
-    if(m_cert == NULL || m_key == NULL)
+    if(m_cert.empty() || !m_pkey)
     {
-        m_chyba = "Chyba certifikátu";
+        m_chyba = m_certChyba.empty() ? "Chyba certifikátu" : m_certChyba;
         return EET_ERROR;
     }
 
@@ -278,50 +261,66 @@ EETCODE Eet::sendTrzbaImpl(EetData data)
     showDebug(templateRequest);
 
     std::string response;
-    CURL *curl;
-    CURLcode res = CURLE_OK;
-    struct curl_slist *headers = NULL;
-    curl = curl_easy_init();
-    if(curl)
+    long httpCode = 0;
+    CURL *curl = curl_easy_init();
+    if(!curl)
     {
-        headers = curl_slist_append(headers, EetData::formatString("SOAPAction: %s", SOAPACTION).c_str());
-        headers = curl_slist_append(headers, "Content-Type: text/xml; charset=utf-8");
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_URL, m_playground?PGURL:PRODUKCNIURL);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, templateRequest.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)templateRequest.size());
-        curl_easy_setopt(curl, CURLOPT_CRLF, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-        res = curl_easy_perform(curl);
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
+        m_chyba = "Nepodařilo se inicializovat curl";
+        return EET_ERROR;
     }
+    struct curl_slist *headers = nullptr;
+    headers = curl_slist_append(headers, EetData::formatString("SOAPAction: %s", SOAPACTION).c_str());
+    headers = curl_slist_append(headers, "Content-Type: text/xml; charset=utf-8");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_URL, m_playground?PGURL:PRODUKCNIURL);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, templateRequest.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)templateRequest.size());
+    curl_easy_setopt(curl, CURLOPT_CRLF, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+#if defined(_WIN32) && defined(CURLSSLOPT_NATIVE_CA)
+    // Mimo MSYS2 curl nenajde svůj ca-bundle.crt - použije se úložiště certifikátů Windows
+    curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, (long)CURLSSLOPT_NATIVE_CA);
+#endif
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, m_timeout);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, m_timeout);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    CURLcode res = curl_easy_perform(curl);
     if(res == CURLE_OK)
     {
-        showDebug("Response:");
-        showDebug(response);
-        parseResponse(response, m_overeni);
-        if(m_overeni == OVEROVACI && !m_pok.empty())
-        {
-            m_pok.clear();
-            if(!m_varovani.empty()) return EET_OVERENO_SVAROVANIM;
-            else return EET_OVERENO;
-        }
-        if(!m_chyba.empty()) return EET_CHYBA;
-        if(!m_varovani.empty()) return EET_VAROVANI;
-        if(m_pok.empty())
-        {
-            m_chyba = "Nepodařilo se získat POK";
-            return EET_ERROR;
-        }
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
     }
-    else
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    if(res != CURLE_OK)
     {
         m_chyba = curl_easy_strerror(res);
+        return EET_ERROR;
+    }
+    showDebug("Response:");
+    showDebug(response);
+    parseResponse(response, m_overeni);
+    // SOAP Fault chodí s HTTP 500 a tělem - když z něj nic nevyčteme, nahlásíme aspoň status
+    if(httpCode != 200 && m_chyba.empty() && m_pok.empty())
+    {
+        m_chyba = EetData::formatString("Server vrátil HTTP %ld", httpCode);
+        return EET_ERROR;
+    }
+    if(m_overeni == OVEROVACI && !m_pok.empty())
+    {
+        m_pok.clear();
+        if(!m_varovani.empty()) return EET_OVERENO_SVAROVANIM;
+        else return EET_OVERENO;
+    }
+    if(!m_chyba.empty()) return EET_CHYBA;
+    if(!m_varovani.empty()) return EET_VAROVANI;
+    if(m_pok.empty())
+    {
+        m_chyba = "Nepodařilo se získat POK";
         return EET_ERROR;
     }
     m_chyba.clear();
@@ -329,147 +328,182 @@ EETCODE Eet::sendTrzbaImpl(EetData data)
     return EET_OK;
 }
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+// Řada reálných produkčních .p12 certifikátů (např. od Finanční správy) je
+// zašifrována starším algoritmem RC2-40-CBC. OpenSSL 3.0 tyto algoritmy
+// přesunulo do tzv. "legacy" provideru, který se defaultně nenačítá - bez
+// něj parsování takového PKCS#12 souboru selže s chybou "unsupported".
+struct ProvidersStatus
+{
+    bool legacy;
+    std::string warning;    // prázdný řetězec znamená úspěch
+};
+
+static ProvidersStatus loadOpensslProviders()
+{
+    std::string warning;
+    bool legacy = OSSL_PROVIDER_load(nullptr, "legacy") != nullptr;
+#ifdef _WIN32
+    if(!legacy)
+    {
+        // Mimo MSYS2 neplatí cesta k ossl-modules zapečená při kompilaci OpenSSL,
+        // legacy.dll se proto hledá v podadresáři ossl-modules vedle exe
+        char path[MAX_PATH];
+        DWORD len = GetModuleFileNameA(nullptr, path, MAX_PATH);
+        if(len > 0 && len < MAX_PATH)
+        {
+            std::string dir(path, len);
+            dir = dir.substr(0, dir.find_last_of("\\/") + 1) + "ossl-modules";
+            OSSL_PROVIDER_set_default_search_path(nullptr, dir.c_str());
+            legacy = OSSL_PROVIDER_load(nullptr, "legacy") != nullptr;
+        }
+    }
+#endif
+    if(!legacy)
+    {
+        warning += "Nepodařilo se načíst OpenSSL legacy provider (starší RC2/3DES šifrování v PKCS#12 nemusí fungovat)\n";
+    }
+    if(OSSL_PROVIDER_load(nullptr, "default") == nullptr)
+    {
+        warning += "Nepodařilo se načíst OpenSSL default provider\n";
+    }
+    ERR_clear_error();
+    ProvidersStatus status;
+    status.legacy = legacy;
+    status.warning = warning;
+    return status;
+}
+#endif
+
+static std::string bioToString(BIO *bio)
+{
+    char *data = nullptr;
+    long len = BIO_get_mem_data(bio, &data);
+    if(len <= 0 || data == nullptr) return std::string();
+    return std::string(data, len);
+}
+
 bool Eet::createKeyCert()
 {
-    m_key = NULL;
-    m_cert = NULL;
+    m_pkey.reset();
+    m_cert.clear();
+    m_certChyba.clear();
     FILE *fp;
-    EVP_PKEY *pkey;
-    X509 *cert;
-    STACK_OF(X509) *ca = NULL;
+    EVP_PKEY *pkey = nullptr;
+    X509 *cert = nullptr;
+    STACK_OF(X509) *ca = nullptr;
     PKCS12 *p12;
     OpenSSL_add_all_algorithms();
     ERR_load_crypto_strings();
 
+    // Heslo je potřeba jen pro PKCS12_parse, pak se přepíše a zahodí
+    auto clearPass = [this]() {
+        if(!m_pass.empty()) OPENSSL_cleanse(&m_pass[0], m_pass.size());
+        m_pass.clear();
+    };
+    auto fail = [this, &clearPass](const std::string &chyba) {
+        clearPass();
+        m_chyba = chyba;
+        m_certChyba = chyba;
+        showDebug(chyba);
+        return false;
+    };
+
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
-    // Řada reálných produkčních .p12 certifikátů (např. od Finanční správy) je
-    // zašifrována starším algoritmem RC2-40-CBC. OpenSSL 3.0 tyto algoritmy
-    // přesunulo do tzv. "legacy" provideru, který se defaultně nenačítá - bez
-    // něj parsování takového PKCS#12 souboru selže s chybou "unsupported".
-    static bool providersLoaded = false;
-    if(!providersLoaded)
-    {
-        if(OSSL_PROVIDER_load(NULL, "legacy") == NULL)
-        {
-            showDebug("Nepodařilo se načíst OpenSSL legacy provider (starší RC2/3DES šifrování v PKCS#12 nemusí fungovat)");
-        }
-        if(OSSL_PROVIDER_load(NULL, "default") == NULL)
-        {
-            showDebug("Nepodařilo se načíst OpenSSL default provider");
-        }
-        providersLoaded = true;
-    }
+    // Inicializace statické proměnné je od C++11 thread-safe a proběhne jen jednou
+    static const ProvidersStatus providers = loadOpensslProviders();
+    showDebug(providers.warning);
+    const bool legacyAvailable = providers.legacy;
+#else
+    // OpenSSL < 3.0 umí RC2/3DES bez legacy provideru
+    const bool legacyAvailable = true;
 #endif
 
     #ifndef _WIN32
         fp = fopen(m_certPath.c_str(), "rb");
     #else
         // On Windows, non-ascii characters in path don't work with fopen(). Thus use _wfopen() instead.
-        std::wstring filePathW;
-        filePathW.resize(m_certPath.size());
-        int newSize = MultiByteToWideChar(CP_UTF8, 0, m_certPath.c_str(), m_certPath.length(), const_cast<wchar_t *>(filePathW.c_str()), m_certPath.length());
+        std::wstring filePathW(m_certPath.size(), L'\0');
+        int newSize = MultiByteToWideChar(CP_UTF8, 0, m_certPath.c_str(), (int)m_certPath.length(), &filePathW[0], (int)filePathW.size());
         filePathW.resize(newSize);
         fp = _wfopen(filePathW.c_str(), L"rb");
     #endif
 
     if(!fp)
     {
-        m_chyba = EetData::formatString("Chyba při otevírání souboru certifikátu %s", m_certPath.c_str());
-        showDebug(m_chyba);
-        return false;
+        return fail(EetData::formatString("Chyba při otevírání souboru certifikátu %s", m_certPath.c_str()));
     }
-    p12 = d2i_PKCS12_fp(fp, NULL);
+    p12 = d2i_PKCS12_fp(fp, nullptr);
     fclose (fp);
     if(!p12)
     {
-        m_chyba = "Chyba při čtení PKCS#12 souboru";
-        showDebug(m_chyba);
         ERR_print_errors_fp(stderr);
-        return false;
+        return fail("Chyba při čtení PKCS#12 souboru");
     }
     if(!PKCS12_parse(p12, m_pass.c_str(), &pkey, &cert, &ca))
     {
-        m_chyba = "Chyba při parsování PKCS#12 souboru";
-        showDebug(m_chyba);
+        // MAC (HMAC-SHA1/SHA256) jde ověřit i bez legacy provideru, takže odliší chybné heslo
+        // od šifrování, které aktuální OpenSSL neumí
+        bool hasMac = PKCS12_mac_present(p12) == 1;
+        bool passOk = hasMac && PKCS12_verify_mac(p12, m_pass.c_str(), -1) == 1;
+        PKCS12_free(p12);
         ERR_print_errors_fp(stderr);
-        return false;
+        if(hasMac && !passOk)
+        {
+            return fail("Chyba při parsování PKCS#12 souboru (chybné heslo)");
+        }
+        if(passOk && !legacyAvailable)
+        {
+            return fail("Certifikát používá starší šifrování (RC2/3DES) a OpenSSL legacy provider není dostupný. "
+                        "Převeďte certifikát na nový formát (p12-convert.sh / p12-convert.bat).");
+        }
+        return fail("Chyba při parsování PKCS#12 souboru (nepodporované šifrování nebo poškozený soubor)");
     }
     PKCS12_free(p12);
+    clearPass();
     if(pkey)
     {
-        BIO *bio = BIO_new(BIO_s_mem());
-        PEM_write_bio_PrivateKey(bio, pkey, NULL, NULL, 0, NULL, NULL);
-        m_key = (char *)malloc(BIO_number_written(bio) + 1);
-        memset(m_key, 0, BIO_number_written(bio) + 1);
-        BIO_read(bio, m_key, BIO_number_written(bio));
-        BIO_free(bio);
+        // Klíč se drží jen jako EVP_PKEY - EVP_PKEY_free ho při uvolnění v paměti přepíše
+        m_pkey.reset(pkey, EVP_PKEY_free);
     }
     if(cert)
     {
         BIO *bio = BIO_new(BIO_s_mem());
-        PEM_write_bio_X509(bio, cert);
-        m_cert = (char *)malloc(BIO_number_written(bio) + 1);
-        memset(m_cert, 0, BIO_number_written(bio) + 1);
-        BIO_read(bio, m_cert, BIO_number_written(bio));
+        if(bio && PEM_write_bio_X509(bio, cert))
+        {
+            m_cert = bioToString(bio);
+        }
         BIO_free(bio);
     }
     sk_X509_pop_free(ca, X509_free);
     X509_free(cert);
-    EVP_PKEY_free(pkey);
-    return m_key!=NULL && m_cert!=NULL;
-}
-
-EVP_PKEY *Eet::createPKey(bool pub)
-{
-    EVP_PKEY *pkey = NULL;
-    if(pub)
+    if(!m_pkey || m_cert.empty())
     {
-        BIO *keybio = BIO_new_mem_buf(m_cert, -1);
-        if(keybio==NULL)
-        {
-            showDebug("Failed to create key BIO");
-            return NULL;
-        }
-        pkey = PEM_read_bio_PUBKEY(keybio, NULL, NULL, NULL);
-        BIO_free(keybio);
+        m_pkey.reset();
+        m_cert.clear();
+        return fail("PKCS#12 soubor neobsahuje privátní klíč nebo certifikát");
     }
-    else
-    {
-        BIO *keybio = BIO_new_mem_buf(m_key, -1);
-        if(keybio==NULL)
-        {
-            showDebug("Failed to create key BIO");
-            return NULL;
-        }
-        pkey = PEM_read_bio_PrivateKey(keybio, NULL, NULL, NULL);
-        BIO_free(keybio);
-    }
-    if(pkey == NULL)
-    {
-        showDebug("Failed to create EVP_PKEY");
-    }
-    return pkey;
+    return true;
 }
 
 std::vector<unsigned char> Eet::createSignature(const std::string &plaintext)
 {
     std::vector<unsigned char> signature;
-    EVP_PKEY *pkey = createPKey(false);
-    if(pkey == NULL) return signature;
+    EVP_PKEY *pkey = m_pkey.get();
+    if(pkey == nullptr) return signature;
 
     EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-    if(mdctx == NULL)
+    if(mdctx == nullptr)
     {
         showDebug("Failed to create EVP_MD_CTX");
-        EVP_PKEY_free(pkey);
         return signature;
     }
 
     const unsigned char *tbs = (const unsigned char *)plaintext.c_str();
     size_t tbslen = plaintext.size();
     size_t siglen = 0;
-    bool ok = EVP_DigestSignInit(mdctx, NULL, EVP_sha256(), NULL, pkey) == 1
-              && EVP_DigestSign(mdctx, NULL, &siglen, tbs, tbslen) == 1;
+    bool ok = EVP_DigestSignInit(mdctx, nullptr, EVP_sha256(), nullptr, pkey) == 1
+              && EVP_DigestSign(mdctx, nullptr, &siglen, tbs, tbslen) == 1;
 
     if(ok)
     {
@@ -490,7 +524,6 @@ std::vector<unsigned char> Eet::createSignature(const std::string &plaintext)
     }
 
     EVP_MD_CTX_free(mdctx);
-    EVP_PKEY_free(pkey);
     return signature;
 }
 
@@ -500,9 +533,9 @@ std::vector<unsigned char> Eet::sha256(const std::string &str)
     EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
     unsigned int len = 0;
     hash.resize(EVP_MD_size(EVP_sha256()));
-    if(mdctx != NULL)
+    if(mdctx != nullptr)
     {
-        if(EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL) == 1
+        if(EVP_DigestInit_ex(mdctx, EVP_sha256(), nullptr) == 1
            && EVP_DigestUpdate(mdctx, str.c_str(), str.size()) == 1
            && EVP_DigestFinal_ex(mdctx, &hash[0], &len) == 1)
         {
@@ -520,6 +553,7 @@ std::vector<unsigned char> Eet::sha256(const std::string &str)
 
 void Eet::showDebug(const std::string &text)
 {
+    (void)text;
 #ifdef DEBUG
     if(text.empty()) return;
     std::cout << text;
@@ -546,7 +580,7 @@ std::string Eet::uuid4()
     int rc = RAND_bytes(uuid.__rnd, sizeof(uuid));
     if(!rc)
     {
-        srand(time(NULL));
+        srand(time(nullptr));
         for(unsigned int i=0; i<sizeof(uuid); i++)
         {
             uuid.__rnd[i] = rand() % 256;
@@ -582,16 +616,6 @@ std::string Eet::base64Encode(std::vector<unsigned char> data)
     return base64String;
 }
 
-std::string Eet::byte2Hex(std::vector<unsigned char> data)
-{
-    std::stringstream ss;
-    for(size_t i = 0; i < data.size(); ++i)
-    {
-        ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)data[i];
-    }
-    return ss.str();
-}
-
 std::string Eet::formatCertificate()
 {
     std::string cert(m_cert);
@@ -621,7 +645,11 @@ std::string Eet::fillTemplate(const std::string &templ)
         }
         size_t p = templ.find_first_of('}',i+2);
         if(p == std::string::npos)
+        {
             showDebug("Missing end of placeholder");
+            ss << templ.substr(i);
+            break;
+        }
         bool attribute = c==' ';
         if(attribute)
             ++i; //skip space
@@ -644,106 +672,226 @@ std::string Eet::fillTemplate(const std::string &templ)
     return ss.str();
 }
 
+// Minimální čtení XML odpovědi bez externí knihovny. Stačí na strukturu odpovědi EET
+// (Potvrzeni, Chyba, Varovani, případně SOAP Fault) - elementy se porovnávají podle
+// jména bez prefixu jmenného prostoru, atributy mohou být v libovolném pořadí
+// a v uvozovkách i apostrofech.
+struct XmlElement
+{
+    std::string name;   // jméno bez prefixu (eet:Chyba -> Chyba)
+    StringMap attrs;
+    std::string text;   // text za počáteční značkou do další značky
+};
+
+static bool isXmlSpace(char c)
+{
+    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+static void appendUtf8(std::string &out, unsigned long cp)
+{
+    if(cp < 0x80)
+    {
+        out += (char)cp;
+    }
+    else if(cp < 0x800)
+    {
+        out += (char)(0xC0 | (cp >> 6));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+    else if(cp < 0x10000)
+    {
+        out += (char)(0xE0 | (cp >> 12));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+    else
+    {
+        out += (char)(0xF0 | (cp >> 18));
+        out += (char)(0x80 | ((cp >> 12) & 0x3F));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+}
+
+// Převede entity (&lt; &gt; &amp; &quot; &apos; &#N; &#xN;), neznámé nechá beze změny
+static std::string xmlUnescape(const std::string &s)
+{
+    std::string out;
+    out.reserve(s.size());
+    for(size_t i=0; i<s.size(); ++i)
+    {
+        size_t semi;
+        if(s[i] == '&' && (semi = s.find(';', i)) != std::string::npos && semi - i <= 10)
+        {
+            std::string ent = s.substr(i+1, semi-i-1);
+            bool known = true;
+            if(ent == "lt") out += '<';
+            else if(ent == "gt") out += '>';
+            else if(ent == "amp") out += '&';
+            else if(ent == "quot") out += '"';
+            else if(ent == "apos") out += '\'';
+            else if(ent.size() > 1 && ent[0] == '#')
+            {
+                bool hex = ent[1] == 'x' || ent[1] == 'X';
+                const char *digits = ent.c_str() + (hex ? 2 : 1);
+                char *end = nullptr;
+                unsigned long cp = 0;
+                if(hex ? std::isxdigit((unsigned char)*digits) : std::isdigit((unsigned char)*digits))
+                    cp = strtoul(digits, &end, hex ? 16 : 10);
+                known = end && *end == '\0' && cp > 0 && cp < 0x110000;
+                if(known) appendUtf8(out, cp);
+            }
+            else known = false;
+            if(known)
+            {
+                i = semi;
+                continue;
+            }
+        }
+        out += s[i];
+    }
+    return out;
+}
+
+// Projde všechny počáteční značky v dokumentu. U neúplného XML skončí
+// a vrátí elementy načtené do té doby.
+static std::vector<XmlElement> parseXmlElements(const std::string &xml)
+{
+    std::vector<XmlElement> elements;
+    const size_t n = xml.size();
+    size_t i = 0;
+    while((i = xml.find('<', i)) != std::string::npos)
+    {
+        if(xml.compare(i, 4, "<!--") == 0)
+        {
+            size_t end = xml.find("-->", i+4);
+            if(end == std::string::npos) break;
+            i = end + 3;
+            continue;
+        }
+        if(i+1 < n && (xml[i+1] == '?' || xml[i+1] == '!' || xml[i+1] == '/'))
+        {
+            // XML deklarace, DOCTYPE, koncová značka
+            size_t end = xml.find('>', i+1);
+            if(end == std::string::npos) break;
+            i = end + 1;
+            continue;
+        }
+        XmlElement el;
+        size_t p = i + 1;
+        while(p < n && !isXmlSpace(xml[p]) && xml[p] != '>' && xml[p] != '/') ++p;
+        std::string qname = xml.substr(i+1, p-i-1);
+        size_t colon = qname.find(':');
+        el.name = colon == std::string::npos ? qname : qname.substr(colon+1);
+        bool closed = false;
+        bool selfClosing = false;
+        while(p < n)
+        {
+            while(p < n && isXmlSpace(xml[p])) ++p;
+            if(p >= n) break;
+            if(xml[p] == '>')
+            {
+                closed = true;
+                ++p;
+                break;
+            }
+            if(xml[p] == '/')
+            {
+                if(p+1 < n && xml[p+1] == '>')
+                {
+                    closed = selfClosing = true;
+                    p += 2;
+                }
+                break;
+            }
+            size_t attrStart = p;
+            while(p < n && !isXmlSpace(xml[p]) && xml[p] != '=' && xml[p] != '>' && xml[p] != '/') ++p;
+            std::string attrName = xml.substr(attrStart, p-attrStart);
+            while(p < n && isXmlSpace(xml[p])) ++p;
+            if(p >= n || xml[p] != '=') break;
+            ++p;
+            while(p < n && isXmlSpace(xml[p])) ++p;
+            if(p >= n || (xml[p] != '"' && xml[p] != '\'')) break;
+            size_t valueEnd = xml.find(xml[p], p+1);
+            if(valueEnd == std::string::npos) break;
+            el.attrs[attrName] = xmlUnescape(xml.substr(p+1, valueEnd-p-1));
+            p = valueEnd + 1;
+        }
+        if(!closed) break;
+        if(!selfClosing)
+        {
+            size_t textEnd = xml.find('<', p);
+            if(textEnd == std::string::npos) break;
+            el.text = xmlUnescape(xml.substr(p, textEnd-p));
+        }
+        elements.push_back(el);
+        i = p;
+    }
+    return elements;
+}
+
+static std::string xmlAttr(const XmlElement &el, const std::string &name)
+{
+    StringMap::const_iterator it = el.attrs.find(name);
+    return it == el.attrs.end() ? std::string() : it->second;
+}
+
 void Eet::parseResponse(const std::string &response, OVERENI overeni)
 {
     m_pok = "";
     m_chyba = "";
     m_varovani = "";
-    size_t pos1, pos2;
-    if(overeni == OVEROVACI)
+    bool overeno = false;
+    std::string faultString;
+    std::vector<XmlElement> elements = parseXmlElements(response);
+    for(size_t i=0; i<elements.size(); ++i)
     {
-        // V ověřovacím módu značí úspěch chybový kód 0 (element Chyba, kod="0")
-        if(response.find("Chyba kod=\"0\"") != std::string::npos)
+        const XmlElement &el = elements[i];
+        if(el.name == "Potvrzeni")
         {
-            m_pok = "Overeno";
-            //response obsahuje Varovani
-            if(response.find(":Varovani") != std::string::npos || response.find("<Varovani") != std::string::npos)
-            {
-                size_t start = response.find("Varovani");
-                for(size_t i=start; i<response.length(); ++i)
-                {
-                    if(response.substr(i,10) == "kod_varov=")
-                    {
-                        pos1 = response.find('"', i);
-                        pos2 = response.find('"', pos1+1);
-                        m_varovani.append("Kód: ");
-                        m_varovani.append(response.substr(pos1+1, pos2-pos1-1));
-                        m_varovani.append("\n");
-                        pos1 = response.find('>', pos2);
-                        pos2 = response.find('<', pos1+1);
-                        m_varovani.append(response.substr(pos1+1, pos2-pos1-1));
-                        m_varovani.append("\n");
-                        i = pos2;
-                    }
-                }
-            }
-            return;
+            // Element Potvrzeni obsahuje atribut pok (POK) - viz PokType v EETXMLSchema.xsd
+            m_pok = xmlAttr(el, "pok");
+        }
+        else if(el.name == "Chyba")
+        {
+            std::string kod = xmlAttr(el, "kod");
+            // V ověřovacím módu značí úspěch chybový kód 0
+            if(overeni == OVEROVACI && kod == "0")
+                overeno = true;
+            else
+                m_chyba += "Kód: " + kod + "\n" + el.text + "\n";
+        }
+        else if(el.name == "Varovani")
+        {
+            m_varovani += "Kód: " + xmlAttr(el, "kod_varov") + "\n" + el.text + "\n";
+        }
+        else if(el.name == "faultstring")
+        {
+            faultString = el.text;
         }
     }
-    // Element Potvrzeni obsahuje atribut pok (POK) - viz PokType v EETXMLSchema.xsd
-    size_t pok = response.find("Potvrzeni ");
-    if(pok != std::string::npos)
+    if(overeno)
     {
-        size_t attr = response.find("pok=", pok);
-        size_t elementEnd = response.find('>', pok);
-        if(attr != std::string::npos && (elementEnd == std::string::npos || attr < elementEnd))
-        {
-            pos1 = response.find('"', attr);
-            pos2 = response.find('"', pos1+1);
-            m_pok = response.substr(pos1+1, pos2-pos1-1);
-        }
+        m_pok = "Overeno";
+        m_chyba.clear();
+        return;
     }
-    //response obsahuje Varovani
-    if(response.find(":Varovani") != std::string::npos || response.find("<Varovani") != std::string::npos)
+    if(m_pok.empty() && m_chyba.empty() && !faultString.empty())
     {
-        for(size_t i=response.find("Varovani"); i<response.length(); ++i)
-        {
-            if(response.substr(i,10) == "kod_varov=")
-            {
-                pos1 = response.find('"', i);
-                pos2 = response.find('"', pos1+1);
-                m_varovani.append("Kód: ");
-                m_varovani.append(response.substr(pos1+1, pos2-pos1-1));
-                m_varovani.append("\n");
-                pos1 = response.find('>', pos2);
-                pos2 = response.find('<', pos1+1);
-                m_varovani.append(response.substr(pos1+1, pos2-pos1-1));
-                m_varovani.append("\n");
-                i = pos2;
-            }
-        }
-    }
-    //response obsahuje Chyba
-    if(response.find("Chyba") != std::string::npos)
-    {
-        for(size_t i=response.find("Chyba"); i<response.length(); ++i)
-        {
-            if(response.substr(i,4) == "kod=")
-            {
-                pos1 = response.find('"', i);
-                pos2 = response.find('"', pos1+1);
-                m_chyba.append("Kód: ");
-                m_chyba.append(response.substr(pos1+1, pos2-pos1-1));
-                m_chyba.append("\n");
-                pos1 = response.find('>', pos2);
-                pos2 = response.find('<', pos1+1);
-                m_chyba.append(response.substr(pos1+1, pos2-pos1-1));
-                m_chyba.append("\n");
-                i = pos2;
-            }
-        }
+        m_chyba = "SOAP Fault: " + faultString + "\n";
     }
 }
 
 bool Eet::regexString20(const std::string &text)
 {
-    std::regex reg("[0-9a-zA-Z\\.,:;/#_ -]{1,20}");
+    static const std::regex reg("[0-9a-zA-Z\\.,:;/#_ -]{1,20}");
     return std::regex_match(text, reg);
 }
 
 bool Eet::regexEic(const std::string &text)
 {
-    std::regex reg("CZ[0-9]{8,10}");
+    static const std::regex reg("CZ[0-9]{8,10}");
     if(!std::regex_match(text, reg)) return false;
     std::string cislo = text.substr(2);
     if(cislo.length() == 8 && !checkIcChecksum(cislo))
@@ -778,12 +926,12 @@ bool Eet::checkIcChecksum(const std::string &ic)
 EetData::EetData()
 {
     //Hlavicka - start
-    m_datOdesl = formatTime(::time(NULL));
+    m_datOdesl = formatTime(::time(nullptr));
     m_prvniZaslani = PRVNI;
     //Hlavicka - end
     //Data - start
     m_poradCis = "";
-    m_datTrzby = formatTime(::time(NULL));
+    m_datTrzby = formatTime(::time(nullptr));
     m_celkTrzba = "0.00";
     // Optional Data - start
     m_urcenoCerpZuct = "";
@@ -858,23 +1006,18 @@ EETCODE EetData::checkData()
 
 std::string EetData::formatString(const char *fmt, ...)
 {
-    std::vector<char> str(100,'\0');
     va_list ap;
-    while(1)
-    {
-        va_start(ap, fmt);
-        int n = VSNPRINTF(str.data(), str.size(), fmt, ap);
-        va_end(ap);
-        if((n > -1) && (size_t(n) < str.size()))
-        {
-            return str.data();
-        }
-        if(n > -1)
-            str.resize(n + 1);
-        else
-            str.resize(str.size() * 2);
-    }
-    return str.data();
+    va_start(ap, fmt);
+    int n = vsnprintf(nullptr, 0, fmt, ap);
+    va_end(ap);
+    if (n <= 0)
+        return std::string();
+
+    std::string str(n, '\0');
+    va_start(ap, fmt);
+    vsnprintf(str.data(), n + 1, fmt, ap);
+    va_end(ap);
+    return str;
 }
 
 std::string EetData::formatDouble(double val)
@@ -889,17 +1032,37 @@ std::string EetData::formatDouble(double val)
 
 bool EetData::regexDouble(const std::string &text)
 {
-    std::regex reg("((0|-?[1-9]\\d{0,7})\\.\\d\\d|-0\\.(0[1-9]|[1-9]\\d))");
+    static const std::regex reg("((0|-?[1-9]\\d{0,7})\\.\\d\\d|-0\\.(0[1-9]|[1-9]\\d))");
     return std::regex_match(text, reg);
+}
+
+static void localTime(time_t time, struct tm *out)
+{
+#ifdef _WIN32
+    localtime_s(out, &time);
+#else
+    localtime_r(&time, out);
+#endif
+}
+
+static void utcTime(time_t time, struct tm *out)
+{
+#ifdef _WIN32
+    gmtime_s(out, &time);
+#else
+    gmtime_r(&time, out);
+#endif
 }
 
 std::string EetData::formatTime(time_t time)
 {
-    struct tm localTm = *localtime(&time);
+    struct tm localTm;
+    localTime(time, &localTm);
     char buffer[512];
     int len = strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S", &localTm);
     std::string s(buffer, len);
-    struct tm utcTm = *gmtime(&time);
+    struct tm utcTm;
+    utcTime(time, &utcTm);
     utcTm.tm_isdst = localTm.tm_isdst;
     time_t utcAsLocalDst = mktime(&utcTm);
     long gmtoffSeconds = (long)difftime(time, utcAsLocalDst);
@@ -910,13 +1073,13 @@ std::string EetData::formatTime(time_t time)
 
 bool EetData::regexTime(const std::string &text)
 {
-    std::regex reg("\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(Z|[+\\-]\\d\\d:\\d\\d)");
+    static const std::regex reg("\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(Z|[+\\-]\\d\\d:\\d\\d)");
     return std::regex_match(text, reg);
 }
 
 bool EetData::regexString25(const std::string &text)
 {
-    std::regex reg("[0-9a-zA-Z\\.,:;/#_ -]{1,25}");
+    static const std::regex reg("[0-9a-zA-Z\\.,:;/#_ -]{1,25}");
     return std::regex_match(text, reg);
 }
 

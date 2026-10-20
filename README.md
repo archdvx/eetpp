@@ -52,16 +52,27 @@ int main(int argc, char **argv)
 ### Kompilace
 
 ```
-c++ -o eettest eettest.cpp -lssl -lcrypto -lcurl -leetpp
+c++ -o eettest eettest.cpp $(pkg-config --cflags --libs libeetpp)
 ```
 
-_Knihovna přilinkována_
+_Knihovna přilinkována (bez pkg-config: `c++ -o eettest eettest.cpp -I/usr/local/include/eetpp -leetpp -lssl -lcrypto -lcurl`, -leetpp musí být před knihovnami, na kterých závisí)_
 
 ```
 c++ -o eettest eettest.cpp eet.cpp -lssl -lcrypto -lcurl
 ```
 
 _Soubory knihovny nakopírovány do projektu_
+
+## Převod certifikátu pro OpenSSL 3
+
+Starší certifikáty PKCS#12 (RC2-40 / 3DES, SHA-1 MAC) OpenSSL 3 bez legacy provideru nenačte.
+Skripty ve složce `scripts` je převedou na AES-256-CBC + SHA-256 MAC, heslo zůstává stejné.
+
+```
+scripts/p12-convert.sh vstup.p12 [vystup.p12]
+```
+
+_Na Windows `scripts\p12-convert.bat`. Heslo se zadá interaktivně, nebo přes proměnnou prostředí P12PASS._
 
 ## Plány
 
